@@ -5,7 +5,7 @@
 			position: absolute;
 		}
 	</style>
-
+		<script src="js/fps.js"></script>
 		<script src="peer.min.js"></script>
 		<script type="text/javascript">
 
@@ -54,6 +54,9 @@
 					} else if (dataReceived.event == "colorFrame") {
 						console.log("Color Frame:");
 						image.src = dataReceived.data;
+					} else if (dataReceived.event == "webGLFrame") {
+						console.log("Web GL Frame:");
+						image.src = dataReceived.data;
 					} else if (dataReceived.event == "depthFrame") {
 						console.log("Depth Frame:");
 						image.src = dataReceived.data;
@@ -75,6 +78,7 @@
 	        imageDataArray = imageData.data;
 
 			image = document.getElementById('image');
+			loadFPS();
 		});
 
 		function drawFloorHeightMarker(data) {

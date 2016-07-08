@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>Hello World!</title>
     <script src="peer.min.js"></script>
+    <script src="js/fps.js"></script>
     <script type="text/JavaScript">
       var Kinect2 = require('kinect2');
       var kinect = new Kinect2();
@@ -24,6 +25,7 @@
       var imageDataArray = null;
 
       var busy = false;
+      //var state = null;
 
       //added for floor height joint 
       var ImageBufferRendererWebgl = require('./js/image-buffer-renderer-webgl.js');
@@ -80,64 +82,138 @@
     	}
 
       function startKey() {
+        console.log('start key');
+        // if (state === null) {
+        //   state = 'key';  
+        // }
+        
         canvas.width = 1920;
         canvas.height = 1080;
         imageData = context.createImageData(canvas.width, canvas.height);
         imageDataSize = imageData.data.length;
         imageDataArray = imageData.data;
 
-        if(kinect.open()) {
-        		kinect.on('multiSourceFrame', function(frame) {
+        //if (state === 'key') {
+          if(kinect.open()) {
+          		kinect.on('multiSourceFrame', function(frame) {
 
-              if(busy) {
-                return;
-              }
-              busy = true;
+                if(busy) {
+                  return;
+                }
+                busy = true;
 
-        			var closestBodyIndex = getClosestBodyIndex(frame.body.bodies);
-        			if(closestBodyIndex !== trackedBodyIndex) {
-        				if(closestBodyIndex > -1) {
-        					kinect.trackPixelsForBodyIndices([closestBodyIndex]);
-        				} else {
-        					kinect.trackPixelsForBodyIndices(false);
-        					//clear canvas
-        				}
-        			}
-        			else {
-        				if (closestBodyIndex > -1) {
-        					if (frame.bodyIndexColor.bodies[closestBodyIndex].buffer) {
-        						//processImageData(frame.bodyIndexColor.bodies[closestBodyIndex].buffer, colorCanvas.width, colorCanvas.height);
+          			var closestBodyIndex = getClosestBodyIndex(frame.body.bodies);
+          			if(closestBodyIndex !== trackedBodyIndex) {
+          				if(closestBodyIndex > -1) {
+          					kinect.trackPixelsForBodyIndices([closestBodyIndex]);
+          				} else {
+          					kinect.trackPixelsForBodyIndices(false);
+          					//clear canvas
+          				}
+          			}
+          			else {
+          				if (closestBodyIndex > -1) {
+          					if (frame.bodyIndexColor.bodies[closestBodyIndex].buffer) {
+          						//processImageData(frame.bodyIndexColor.bodies[closestBodyIndex].buffer, canvas.width, canvas.height);
 
-                    newPixelData = frame.bodyIndexColor.bodies[closestBodyIndex].buffer
+                      newPixelData = frame.bodyIndexColor.bodies[closestBodyIndex].buffer
 
 
-                        for (var i = 0; i < imageDataSize; i++) {
-                          imageDataArray[i] = newPixelData[i];
-                        }
-                        context.putImageData(imageData, 0, 0);
+                          for (var i = 0; i < imageDataSize; i++) {
+                            imageDataArray[i] = newPixelData[i];
+                          }
+                          context.putImageData(imageData, 0, 0);
 
-                        outputContext.clearRect(0,0,outputCanvas.width,outputCanvas.height);
+                          outputContext.clearRect(0,0,outputCanvas.width,outputCanvas.height);
 
-                        outputContext.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height);
-                        
-                        sendToPeer('colorFrame',outputCanvas.toDataURL("image/jpeg", 0.5));
+                          outputContext.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height);
+                          
+                          console.log('sending key');
+                          sendToPeer('colorFrame',outputCanvas.toDataURL("image/jpeg"));
 
-        					}
-        				}
-        			}
-        			trackedBodyIndex = closestBodyIndex;
-              busy = false;
+          					}
+          				}
+          			}
+          			trackedBodyIndex = closestBodyIndex;
+                busy = false;
 
-            }); // kinect.on
-          } // open
-            kinect.openMultiSourceReader({
-              frameTypes: Kinect2.FrameType.bodyIndexColor | Kinect2.FrameType.body
-            });
-      }
+              }); // kinect.on
+            } // open
+          
+          kinect.openMultiSourceReader({
+                frameTypes: Kinect2.FrameType.bodyIndexColor | Kinect2.FrameType.body
+          });
+        }
+     //}
 
       function stopKey() {
-        kinect.closeMultiSourceReader();
+        console.log('stopping key');
+        //kinect.closeMultiSourceReader();
+        //kinect.close();
         busy = false;
+        //state = null;
+      }
+
+      function startGLKey(){
+        console.log('start gl key');
+        // if (state === null) {
+        //   state = 'gl';  
+        // }
+        
+        colorRenderer = new ImageBufferRendererWebgl(colorCanvas);
+
+        //canvas.width = 1920;
+        //canvas.height = 1080;
+
+        //if (state === 'gl') {
+          if(kinect.open()) {
+          kinect.on('multiSourceFrame', function(frame){
+
+            if(busy) {
+                return;
+            }
+            busy = true;
+            
+            var closestBodyIndex = getClosestBodyIndex(frame.body.bodies);
+            if(closestBodyIndex !== trackedBodyIndex) {
+              if(closestBodyIndex > -1) {
+                kinect.trackPixelsForBodyIndices([closestBodyIndex]);
+              } else {
+                kinect.trackPixelsForBodyIndices(false);
+                //clear canvas
+                processImageData(emptyPixels.buffer, colorCanvas.width, colorCanvas.height);
+
+
+              }
+            }
+            else {
+              if(closestBodyIndex > -1) {
+                if(frame.bodyIndexColor.bodies[closestBodyIndex].buffer) {
+                  processImageData(frame.bodyIndexColor.bodies[closestBodyIndex].buffer, colorCanvas.width, colorCanvas.height);
+
+                    console.log('sending webGLFrame');
+                    sendToPeer('webGLFrame', colorCanvas.toDataURL('image/jpeg'));
+                }
+              }
+            }
+            trackedBodyIndex = closestBodyIndex;
+            busy = false;
+
+          });
+
+          kinect.openMultiSourceReader({
+            frameTypes: Kinect2.FrameType.bodyIndexColor | Kinect2.FrameType.body
+          });
+          }
+        //}
+
+      }
+
+      function stopGLKey() {
+        console.log('stop gl key');
+        //kinect.closeMultiSourceReader();
+        busy = false;
+        //state = null;
       }
 
       function startTracking() {
@@ -464,6 +540,8 @@
         outputCanvas = document.getElementById('outputCanvas');
         outputContext = outputCanvas.getContext('2d');
 
+        loadFPS();
+
       }
 
       window.addEventListener('load',initpeer);
@@ -487,6 +565,9 @@
     <input type="button" value="Start Key Camera" onclick="startKey();">
     <input type="button" value="Stop Key Camera" onclick="stopKey();">
     <br />
+    <input type="button" value="Start WebGL Key Camera" onclick="startGLKey();">
+    <input type="button" value="Stop WebGL Key Camera" onclick="stopGLKey();">
+    <br />
     <input type="button" value="Start Infrared Camera" onclick="startInfrared();">
     <input type="button" value="Stop Infrared Camera" onclick="stopInfrared();">
     <br />
@@ -496,7 +577,11 @@
     <input type="button" value="Start Floor Height Joint" onclick="startFHJoint();">
     <input type="button" value="Stop Floor Height Joint" onclick="stopFHJoint();">
     <br />
+    <p>color canvas</p>
+    <canvas id="colorCanvas" width="1920" height="1080"></canvas>
+    <p>input canvas</p>
     <canvas id="inputCanvas" width="1920" height="1080"></canvas>
+    <p>output canvas</p>
     <canvas id="outputCanvas" width="960" height="540"></canvas>
     <br />
     Load a different page:

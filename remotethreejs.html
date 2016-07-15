@@ -2,6 +2,7 @@
   <head>
 
     <script src="peer.min.js"></script>
+    <script src="js/image-buffer-renderer-webgl-browser.js"></script>
     <script src="three.js/build/three.js"></script>
     <script src="js/TrackballControls.js"></script>
     <script type="text/javascript">
@@ -33,6 +34,12 @@
       var numParticles = depthWidth * depthHeight;
 
       var busy = false;
+
+      // webGL image buffer variables
+      var colorRenderer = null; 
+      var webGLCanvas = null;
+
+
 
       
 
@@ -71,16 +78,23 @@
           } else if (dataReceived.event == "depthFrame") {
             console.log("Depth Frame:");
             image.src = dataReceived.data;
-          } else if (dataReceived.event == "startPointCloud") {
-            console.log('startPointCloud');
-            initPointCloud();
+          // } else if (dataReceived.event == "startPointCloud") {
+          //   console.log('startPointCloud');
           } else if (dataReceived.event == "depthColorFrame") {
-           depthColorBuffer = drawBuffer(dataReceived.data, image, colorContext);
+            depthColorBuffer = drawBuffer(dataReceived.data, image, colorContext);
+            pointCloud(depthColorBuffer, depthBuffer);
           } else if (dataReceived.event == "rawDepthFrame") {
-           depthBuffer = drawBuffer(dataReceived.data, image2, depthContext);
+            depthBuffer = drawBuffer(dataReceived.data, image2, depthContext);
            //console.log(depthBuffer);
-           pointCloud(depthColorBuffer, depthBuffer)
-         }
+
+          } else if (dataReceived.event == "depthBuffers") {
+              depthColorBuffer = drawBuffer(dataReceived.data.depthColorBuffer, image, colorContext);
+              //depthBuffer = drawBuffer(dataReceived.data.depthBuffer, image2, depthContext);
+
+              //console.log(depthBuffer);
+              //pointCloud(depthBuffer, depthColorBuffer);
+
+          }
         });
       }
 
@@ -102,20 +116,10 @@
         image = document.getElementById('image');
         image2 = document.getElementById('image2');
 
-        // create three.js scene
-        renderer = new THREE.WebGLRenderer( {
-          canvas: document.getElementById('cloudCanvas'),
-          alpha: 1, antialias: true, clearColor: 0xffffff
-        } );
+        webGLCanvas = document.getElementById('webGLCanvas');
+        colorRenderer = new ImageBufferRendererWebgl(webGLCanvas);
 
-        camera = new THREE.PerspectiveCamera( 40, renderer.domElement.width / renderer.domElement.height, 1, 10000 );
-        camera.position.set( 0, 300, 3000 );
-        controls = new THREE.TrackballControls( camera, renderer.domElement );
-
-        scene = new THREE.Scene();
-
-
-
+        initPointCloud();
 
       });
 
@@ -124,7 +128,26 @@
          context.drawImage(image, 0, 0);
          var imageData = context.getImageData(0, 0, context.canvas.width, context.canvas.height);
          var dataBuffer = imageData.data;
-         return dataBuffer;
+         console.log('databuffer');
+         console.log(dataBuffer);
+         var processedDataBuffer = processImageData(imageData.data, webGLCanvas.width, webGLCanvas.height);
+         console.log('processed');
+         console.log(processedDataBuffer);
+         return processedDataBuffer;
+      }
+      
+      function processImageData(imageBuffer, width, height) {
+
+        if (colorRenderer.isProcessing || (width <= 0) || (height <= 0)) {
+        // Don't start processing new data when we are in the middle of
+        // processing data already.
+        // Also, Only do work if image data to process is of the expected size
+        return;
+      }
+
+        colorRenderer.isProcessing = true;
+        colorRenderer.processImageData(imageBuffer, width, height);
+        colorRenderer.isProcessing = false;
       }
 
 
@@ -151,6 +174,7 @@
 
       function createParticles() {
         //create particles
+        console.log('createparticles');
 
         for(var i = 0; i < numParticles; i++) {
           var x = i % depthWidth - depthWidth * 0.5;
@@ -180,8 +204,20 @@
       }
 
       function initPointCloud(){
-        createGrid();
+        console.log('init point cloud');
+        // create three.js scene
+        renderer = new THREE.WebGLRenderer( {
+          canvas: document.getElementById('cloudCanvas'),
+          alpha: 1, antialias: true, clearColor: 0xffffff
+        } );
 
+        camera = new THREE.PerspectiveCamera( 40, renderer.domElement.width / renderer.domElement.height, 1, 10000 );
+        camera.position.set( 0, 300, 3000 );
+        controls = new THREE.TrackballControls( camera, renderer.domElement );
+
+        scene = new THREE.Scene();
+        createGrid();
+        createParticles();
 
         window.addEventListener( 'resize', onWindowResize, false );
 
@@ -191,11 +227,12 @@
         busy = false;
       }
 
-      function pointCloud(depthColorBuffer, depthBuffer) {
+      function pointCloud(depthBuffer, depthColorBuffer) {
           if(busy) {
             return;
           }
-          createParticles();
+
+          //console.log('particles');
 
           busy = true;
           var nDepthMinReliableDistance = 500;
@@ -203,11 +240,19 @@
           var mapDepthToByte = nDepthMaxDistance / 256;
           var j = 0, k = 0;
 
+          
           for(var i = 0; i < depthBuffer.length; i+=2) {
+
             var depth = (depthBuffer[i+1] << 8) + depthBuffer[i]; //get uint16 data from buffer
+            //console.log(depth);
             if(depth <= nDepthMinReliableDistance || depth >= nDepthMaxDistance) depth = Number.MAX_VALUE; //push them far far away so we don't see them
-            particles.vertices[j].z = (nDepthMaxDistance - depth) - 2000;
-            particles.colors[j].setRGB(depthColorBuffer[k] / 255, depthColorBuffer[k+1] / 255, depthColorBuffer[k+2] / 255);
+            //console.log(particles.vertices[j].z);
+            //console.log(particles.colors[j]);
+            //console.log(nDepthMaxDistance);
+            //console.log(depth);
+            //console.log(depthColorBuffer[k]);
+            //particles.vertices[j].z = (nDepthMaxDistance - depth) - 2000;
+            //particles.colors[j].setRGB(depthColorBuffer[k] / 255, depthColorBuffer[k+1] / 255, depthColorBuffer[k+2] / 255);
             j++;
             k+= 4;
           }
@@ -222,12 +267,13 @@
     </script>
   </head>
   <body>
-    <input type="text" id="peerid" value="Peer Id To Connect To">
+    <input type="text" id="peerid" placeholder="Peer Id To Connect To">
     <input type="button" value="Connect" onclick="makeConnection();">
     <canvas id="outputCanvas" width="1920" height="1080"></canvas>
     <canvas id="cloudCanvas" width="1920" height="1080"></canvas>
     <canvas id="colorCanvas" width="512" height="424"></canvas>
     <canvas id="depthCanvas" width="512" height="424"></canvas>
+    <canvas id="webGLCanvas" width="512" height="424"></canvas>
     <img id="image" src="" width="512" height="424">
     <img id="image2" src="" width="512" height="424">    
   </body>

@@ -339,6 +339,7 @@
 
       function startColorPointCld() {
         console.log('starting Color Point Cloud');
+        sendToPeer('startPointCloud', {});
 
       (function(){
 
@@ -421,10 +422,67 @@
 
       busy = false;
 
+      // Color Buffer to Peer Variables 
+      canvas.width = 512;
+      canvas.height = 424;
+      outputCanvas.width = 512;
+      outputCanvas.height = 424;
+
+      canvas2.width = 512;
+      canvas2.height = 424;
+      outputCanvas2.width = 512;
+      outputCanvas2.height = 424;
+
+      imageData = context.createImageData(canvas.width, canvas.height);
+      imageDataSize = imageData.data.length;
+      imageDataArray = imageData.data;
+
+      imageData2 = context2.createImageData(canvas2.width, canvas2.height);
+      imageDataSize2 = imageData2.data.length;
+      imageDataArray2 = imageData2.data;
+
+      function drawColorBuffer(newPixelData) {
+
+        // if(busy) {
+        //   return;
+        // }
+        // busy = true;
+
+        for (var i = 0; i < imageDataSize; i++) {
+          imageDataArray[i] = newPixelData[i];
+        }
+        context.putImageData(imageData, 0, 0);
+        outputContext.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height);
+        sendToPeer('depthColorFrame',outputCanvas.toDataURL("image/jpeg", 0.5));
+        //busy = false;
+      }
+
+        function drawDepthBuffer(newPixelData) {
+
+        // if(busy) {
+        //   return;
+        // }
+        // busy = true;
+
+        for (var i = 0; i < imageDataSize2; i++) {
+          imageDataArray2[i] = newPixelData[i];
+        }
+        context2.putImageData(imageData2, 0, 0);
+        outputContext2.drawImage(canvas2, 0, 0, outputCanvas2.width, outputCanvas2.height);
+        sendToPeer('rawDepthFrame',outputCanvas2.toDataURL("image/jpeg", 0.5));
+        //busy = false;
+      }
+
       if(kinect.open()) {
         kinect.on('multiSourceFrame', function(frame){
           var depthBuffer = frame.rawDepth.buffer;
           var depthColorBuffer = frame.depthColor.buffer;
+          //console.log(depthColorBuffer);
+          drawDepthBuffer(frame.rawDepth.buffer);
+          drawColorBuffer(depthColorBuffer);
+
+          //drawBuffer(depthBuffer);
+
           if(busy) {
             return;
           }
@@ -477,6 +535,12 @@
 
         outputCanvas = document.getElementById('outputCanvas');
         outputContext = outputCanvas.getContext('2d');
+  
+        canvas2 = document.getElementById('inputCanvas2');
+        context2 = canvas2.getContext('2d');
+
+        outputCanvas2 = document.getElementById('outputCanvas2');
+        outputContext2 = outputCanvas2.getContext('2d');
 
       }
 
@@ -513,6 +577,8 @@
     <canvas id="cloudCanvas" width="512" height="424"></canvas>
     <canvas id="inputCanvas" width="1920" height="1080"></canvas>
     <canvas id="outputCanvas" width="960" height="540"></canvas>
+    <canvas id="inputCanvas2" width="1920" height="1080"></canvas>
+    <canvas id="outputCanvas2" width="960" height="540"></canvas>
     <br />
     Load a different page:
     <input type="file" id="loadfile">

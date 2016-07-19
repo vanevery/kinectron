@@ -1,5 +1,10 @@
 <html>
   <head>
+  <style type="text/css">
+    img {
+      background-color: #fff;
+    }
+  </style>
 
     <script src="peer.min.js"></script>
     <script src="js/image-buffer-renderer-webgl-browser.js"></script>
@@ -80,16 +85,16 @@
             image.src = dataReceived.data;
           // } else if (dataReceived.event == "startPointCloud") {
           //   console.log('startPointCloud');
-          } else if (dataReceived.event == "depthColorFrame") {
-            depthColorBuffer = drawBuffer(dataReceived.data, image, colorContext);
-            pointCloud(depthColorBuffer, depthBuffer);
-          } else if (dataReceived.event == "rawDepthFrame") {
-            depthBuffer = drawBuffer(dataReceived.data, image2, depthContext);
+          // } else if (dataReceived.event == "depthColorFrame") {
+          //   depthColorBuffer = drawBuffer(dataReceived.data, image, colorContext);
+          //   pointCloud(depthColorBuffer, depthBuffer);
+          // } else if (dataReceived.event == "rawDepthFrame") {
+          //   depthBuffer = drawBuffer(dataReceived.data, image2, depthContext);
            //console.log(depthBuffer);
 
           } else if (dataReceived.event == "depthBuffers") {
-              depthColorBuffer = drawBuffer(dataReceived.data.depthColorBuffer, image, colorContext);
-              //depthBuffer = drawBuffer(dataReceived.data.depthBuffer, image2, depthContext);
+            depthColorBuffer = drawBuffer(dataReceived.data.depthColorBuffer, image, colorContext);
+            depthBuffer = drawBuffer(dataReceived.data.depthBuffer, image2, depthContext);
 
               //console.log(depthBuffer);
               //pointCloud(depthBuffer, depthColorBuffer);
@@ -104,9 +109,13 @@
 
         colorCanvas = document.getElementById('colorCanvas');
         colorContext = colorCanvas.getContext('2d');
+        colorContext.fillStyle="ffffff";
+        colorContext.fillRect(0, 0, colorCanvas.width, colorCanvas.height);
 
         depthCanvas = document.getElementById('depthCanvas');
         depthContext = depthCanvas.getContext('2d');
+        depthContext.fillStyle="#ffffff";
+        depthContext.fillRect(0, 0, depthCanvas.width, depthCanvas.height);
 
         canvas.style.display = 'none';
         imageData = context.createImageData(canvas.width, canvas.height);
@@ -128,11 +137,12 @@
          context.drawImage(image, 0, 0);
          var imageData = context.getImageData(0, 0, context.canvas.width, context.canvas.height);
          var dataBuffer = imageData.data;
-         console.log('databuffer');
-         console.log(dataBuffer);
-         var processedDataBuffer = processImageData(imageData.data, webGLCanvas.width, webGLCanvas.height);
-         console.log('processed');
-         console.log(processedDataBuffer);
+         var newDataBuffer = new Uint8Array(dataBuffer);
+         //console.log('databuffer');
+         //console.log(newDataBuffer);
+         var processedDataBuffer = processImageData(newDataBuffer, webGLCanvas.width, webGLCanvas.height);
+         //console.log('processed');
+         //console.log(processedDataBuffer);
          return processedDataBuffer;
       }
       

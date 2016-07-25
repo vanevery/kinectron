@@ -457,43 +457,38 @@
         outputContext.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height);
         //sendToPeer('depthColorFrame',outputCanvas.toDataURL("image/jpeg", 0.5));
         //busy = false;
-        return outputCanvas.toDataURL("image/jpeg", 0.5);
+        return outputCanvas.toDataURL("image/png", 0.5);
       }
 
         function drawDepthBuffer(imageBuffer) {
+          var j = 0;
 
-        // if(busy) {
-        //   return;
-        // }
-        // busy = true;
+          for (var i = 0; i < imageDataSize2; i+=4) {
+            imageDataArray2[i] = imageBuffer[j];
+            imageDataArray2[i+1] = imageBuffer[j+1];
+            imageDataArray2[i+2] = 0;
+            imageDataArray2[i+3] = 255;
+            j+=2;
+          }
+          console.log('processed');
+          console.log(imageDataArray2);
 
+          //context2.clearRect(0,0, canvas2.width, canvas2.height);
+          context2.putImageData(imageData2, 0, 0);
 
-
-        //var pixelArray = imageData2.data;
-        var newPixelData = new Uint8Array(imageBuffer);
-        //var newPixelDataIndex = 0;
-
-        for (var i = 0; i < imageDataSize2; i++) {
-          imageDataArray2[i] = newPixelData[i];
-        }
-
-        console.log('processed');
-        console.log(imageDataSize2);
-        context2.putImageData(imageData2, 0, 0);
-        outputContext2.drawImage(canvas2, 0, 0, outputCanvas2.width, outputCanvas2.height);
-        //sendToPeer('rawDepthFrame',outputCanvas2.toDataURL("image/jpeg", 0.5));
-        //busy = false;
-        return outputCanvas2.toDataURL(
-          "image/jpeg", 0.5);
+          return canvas2.toDataURL(
+            "image/png", 0.5);
       }
 
       if(kinect.open()) {
         kinect.on('multiSourceFrame', function(frame){
-          //console.log(frame);
+          console.log('raw');
+          console.log(frame.rawDepth.buffer);
+
           var depthBuffer = frame.rawDepth.buffer;
           var depthColorBuffer = frame.depthColor.buffer;
-          console.log('raw')
-          console.log(depthBuffer.length);
+          //console.log('depth buffer');
+          //console.log(depthBuffer);
           
           var depthBufferToSend = drawDepthBuffer(depthBuffer);
           var colorBufferToSend = drawColorBuffer(depthColorBuffer);
@@ -516,6 +511,7 @@
           var j = 0, k = 0;
 
           for(var i = 0; i < depthBuffer.length; i+=2) {
+
             var depth = (depthBuffer[i+1] << 8) + depthBuffer[i]; //get uint16 data from buffer
             if(depth <= nDepthMinReliableDistance || depth >= nDepthMaxDistance) depth = Number.MAX_VALUE; //push them far far away so we don't see them
             particles.vertices[j].z = (nDepthMaxDistance - depth) - 2000;
@@ -528,9 +524,12 @@
           busy = false;
         });
 
+
         kinect.openMultiSourceReader({
           frameTypes: Kinect2.FrameType.rawDepth | Kinect2.FrameType.depthColor
         });
+
+        console.log(Kinect2.FrameType);
       }
     })();
 

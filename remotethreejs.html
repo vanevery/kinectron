@@ -93,7 +93,7 @@
            //console.log(depthBuffer);
 
           } else if (dataReceived.event == "depthBuffers") {
-            depthColorBuffer = drawBuffer(dataReceived.data.depthColorBuffer, image, colorContext);
+            //depthColorBuffer = drawBuffer(dataReceived.data.depthColorBuffer, image, colorContext);
             depthBuffer = drawBuffer(dataReceived.data.depthBuffer, image2, depthContext);
 
               //console.log(depthBuffer);
@@ -137,13 +137,15 @@
          context.drawImage(image, 0, 0);
          var imageData = context.getImageData(0, 0, context.canvas.width, context.canvas.height);
          var dataBuffer = imageData.data;
-         var newDataBuffer = new Uint8Array(dataBuffer);
+         console.log(dataBuffer);
+         return dataBuffer;
+        // var newDataBuffer = new Uint8Array(dataBuffer);
          //console.log('databuffer');
          //console.log(newDataBuffer);
-         var processedDataBuffer = processImageData(newDataBuffer, webGLCanvas.width, webGLCanvas.height);
+        //var processedDataBuffer = processImageData(newDataBuffer, webGLCanvas.width, webGLCanvas.height);
          //console.log('processed');
          //console.log(processedDataBuffer);
-         return processedDataBuffer;
+         //return processedDataBuffer;
       }
       
       function processImageData(imageBuffer, width, height) {

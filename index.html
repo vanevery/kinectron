@@ -30,7 +30,7 @@
       var busy = false;
 
       function initpeer() {
-          peer = new Peer('lisa',{host: 'liveweb.itp.io', port: 9000, path: '/', secure: true});
+          peer = new Peer('l',{host: 'liveweb.itp.io', port: 9000, path: '/', secure: true});
 
           peer.on('error',function(err) {
             console.log(err);
@@ -428,25 +428,20 @@
       outputCanvas.width = 512;
       outputCanvas.height = 424;
 
-      canvas2.width = 512;
-      canvas2.height = 424;
-      outputCanvas2.width = 512;
-      outputCanvas2.height = 424;
-
       imageData = context.createImageData(canvas.width, canvas.height);
       imageDataSize = imageData.data.length;
       imageDataArray = imageData.data;
 
-      imageData2 = context2.createImageData(canvas2.width, canvas2.height);
+      imageData2 = outputContext.createImageData(outputCanvas.width, outputCanvas.height);
       imageDataSize2 = imageData2.data.length;
       imageDataArray2 = imageData2.data;
 
       function drawColorBuffer(imageBuffer) {
 
-        // if(busy) {
-        //   return;
-        // }
-        // busy = true;
+        if(busy) {
+          return;
+        }
+        busy = true;
 
         var newPixelData = new Uint8Array(imageBuffer);
 
@@ -454,48 +449,44 @@
           imageDataArray[i] = newPixelData[i];
         }
         context.putImageData(imageData, 0, 0);
-        outputContext.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height);
-        //sendToPeer('depthColorFrame',outputCanvas.toDataURL("image/jpeg", 0.5));
-        //busy = false;
-        return outputCanvas.toDataURL("image/png", 0.5);
+        busy = false;
+        return canvas.toDataURL("image/jpeg", 0.5);
       }
 
-        function drawDepthBuffer(imageBuffer) {
-          var j = 0;
+      function drawDepthBuffer(imageBuffer) {
+        var j = 0;
+        
+        if(busy) {
+          return;
+        }
+        busy = true;
 
-          for (var i = 0; i < imageDataSize2; i+=4) {
-            imageDataArray2[i] = imageBuffer[j];
-            imageDataArray2[i+1] = imageBuffer[j+1];
-            imageDataArray2[i+2] = 0;
-            imageDataArray2[i+3] = 255;
-            j+=2;
-          }
-          console.log('processed');
-          console.log(imageDataArray2);
+        for (var i = 0; i < imageDataSize2; i+=4) {
+          imageDataArray2[i] = imageBuffer[j];
+          imageDataArray2[i+1] = imageBuffer[j+1];
+          imageDataArray2[i+2] = 0;
+          imageDataArray2[i+3] = 255;
+          j+=2;
+        }
+       // console.log('processed');
+       // console.log(imageDataArray2);
 
-          //context2.clearRect(0,0, canvas2.width, canvas2.height);
-          context2.putImageData(imageData2, 0, 0);
-
-          return canvas2.toDataURL(
-            "image/png", 0.5);
+        console.log('buffer');
+        console.log(imageDataArray2.length);
+        console.log(imageDataArray2);
+        outputContext.putImageData(imageData2, 0, 0);
+        busy = false;
+        return outputCanvas.toDataURL();
       }
 
       if(kinect.open()) {
         kinect.on('multiSourceFrame', function(frame){
-          console.log('raw');
-          console.log(frame.rawDepth.buffer);
 
           var depthBuffer = frame.rawDepth.buffer;
           var depthColorBuffer = frame.depthColor.buffer;
-          //console.log('depth buffer');
-          //console.log(depthBuffer);
           
           var depthBufferToSend = drawDepthBuffer(depthBuffer);
           var colorBufferToSend = drawColorBuffer(depthColorBuffer);
-          //console.log('processed');
-          //console.log(depthBufferToSend.length);
-
-          //console.log(depthBufferToSend);
           var buffersToSend = {depthBuffer: depthBufferToSend, depthColorBuffer: colorBufferToSend};
 
           sendToPeer('depthBuffers', buffersToSend);
@@ -505,6 +496,7 @@
             return;
           }
           busy = true;
+
           var nDepthMinReliableDistance = 500;
           var nDepthMaxDistance = 4500;
           var mapDepthToByte = nDepthMaxDistance / 256;
@@ -529,7 +521,7 @@
           frameTypes: Kinect2.FrameType.rawDepth | Kinect2.FrameType.depthColor
         });
 
-        console.log(Kinect2.FrameType);
+        //console.log(Kinect2.FrameType);
       }
     })();
 
@@ -557,13 +549,6 @@
 
         outputCanvas = document.getElementById('outputCanvas');
         outputContext = outputCanvas.getContext('2d');
-  
-        canvas2 = document.getElementById('inputCanvas2');
-        context2 = canvas2.getContext('2d');
-
-        outputCanvas2 = document.getElementById('outputCanvas2');
-        outputContext2 = outputCanvas2.getContext('2d');
-
       }
 
       window.addEventListener('load',initpeer);

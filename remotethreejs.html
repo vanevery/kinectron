@@ -83,21 +83,14 @@
           } else if (dataReceived.event == "depthFrame") {
             console.log("Depth Frame:");
             image.src = dataReceived.data;
-          // } else if (dataReceived.event == "startPointCloud") {
-          //   console.log('startPointCloud');
-          // } else if (dataReceived.event == "depthColorFrame") {
-          //   depthColorBuffer = drawBuffer(dataReceived.data, image, colorContext);
-          //   pointCloud(depthColorBuffer, depthBuffer);
-          // } else if (dataReceived.event == "rawDepthFrame") {
-          //   depthBuffer = drawBuffer(dataReceived.data, image2, depthContext);
-           //console.log(depthBuffer);
-
           } else if (dataReceived.event == "depthBuffers") {
-            //depthColorBuffer = drawBuffer(dataReceived.data.depthColorBuffer, image, colorContext);
+            depthColorBuffer = drawBuffer(dataReceived.data.depthColorBuffer, image, colorContext);
             depthBuffer = drawBuffer(dataReceived.data.depthBuffer, image2, depthContext);
 
-              //console.log(depthBuffer);
-              //pointCloud(depthBuffer, depthColorBuffer);
+            // console.log('depthBuffer');
+            // console.log(depthBuffer.length);
+            // console.log(depthBuffer);
+            pointCloud(depthBuffer, depthColorBuffer);
 
           }
         });
@@ -134,33 +127,15 @@
 
       function drawBuffer(data, image, context) {
          image.src = data;
+         context.clearRect(0, 0, context.canvas.width, context.canvas.height);
          context.drawImage(image, 0, 0);
          var imageData = context.getImageData(0, 0, context.canvas.width, context.canvas.height);
          var dataBuffer = imageData.data;
-         console.log(dataBuffer);
+         //console.log(dataBuffer);
          return dataBuffer;
-        // var newDataBuffer = new Uint8Array(dataBuffer);
-         //console.log('databuffer');
-         //console.log(newDataBuffer);
-        //var processedDataBuffer = processImageData(newDataBuffer, webGLCanvas.width, webGLCanvas.height);
-         //console.log('processed');
-         //console.log(processedDataBuffer);
-         //return processedDataBuffer;
       }
       
-      function processImageData(imageBuffer, width, height) {
 
-        if (colorRenderer.isProcessing || (width <= 0) || (height <= 0)) {
-        // Don't start processing new data when we are in the middle of
-        // processing data already.
-        // Also, Only do work if image data to process is of the expected size
-        return;
-      }
-
-        colorRenderer.isProcessing = true;
-        colorRenderer.processImageData(imageBuffer, width, height);
-        colorRenderer.isProcessing = false;
-      }
 
 
       function createGrid() {
@@ -236,7 +211,7 @@
         onWindowResize();   
         render();
 
-        busy = false;
+        //busy = false;
       }
 
       function pointCloud(depthBuffer, depthColorBuffer) {
@@ -252,19 +227,13 @@
           var mapDepthToByte = nDepthMaxDistance / 256;
           var j = 0, k = 0;
 
-          
-          for(var i = 0; i < depthBuffer.length; i+=2) {
+          for(var i = 0; i < depthBuffer.length; i+=4) {
 
-            var depth = (depthBuffer[i+1] << 8) + depthBuffer[i]; //get uint16 data from buffer
-            //console.log(depth);
-            if(depth <= nDepthMinReliableDistance || depth >= nDepthMaxDistance) depth = Number.MAX_VALUE; //push them far far away so we don't see them
-            //console.log(particles.vertices[j].z);
-            //console.log(particles.colors[j]);
-            //console.log(nDepthMaxDistance);
-            //console.log(depth);
-            //console.log(depthColorBuffer[k]);
-            //particles.vertices[j].z = (nDepthMaxDistance - depth) - 2000;
-            //particles.colors[j].setRGB(depthColorBuffer[k] / 255, depthColorBuffer[k+1] / 255, depthColorBuffer[k+2] / 255);
+           var depth = (depthBuffer[i+1] << 8) + depthBuffer[i]; //get uint16 data from buffer
+           if(depth <= nDepthMinReliableDistance || depth >= nDepthMaxDistance) depth = Number.MAX_VALUE; //push them far far away so we don't see them
+            particles.vertices[j].z = (nDepthMaxDistance - depth) - 2000;
+            // particles.vertices[j].z = 1000;
+            particles.colors[j].setRGB(depthColorBuffer[k] / 255, depthColorBuffer[k+1] / 255, depthColorBuffer[k+2] / 255);
             j++;
             k+= 4;
           }

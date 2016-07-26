@@ -28,6 +28,8 @@
       var animFrame = null;
 
       var busy = false;
+      var sentTime = Date.now();
+
 
       function initpeer() {
           peer = new Peer('l',{host: 'liveweb.itp.io', port: 9000, path: '/', secure: true});
@@ -450,7 +452,8 @@
         }
         context.putImageData(imageData, 0, 0);
         busy = false;
-        return canvas.toDataURL("image/jpeg", 0.5);
+        // send really low quality image data to prioritize depth data
+        return canvas.toDataURL("image/jpeg", 0.1);
       }
 
       function drawDepthBuffer(imageBuffer) {
@@ -468,12 +471,7 @@
           imageDataArray2[i+3] = 255;
           j+=2;
         }
-       // console.log('processed');
-       // console.log(imageDataArray2);
 
-        console.log('buffer');
-        console.log(imageDataArray2.length);
-        console.log(imageDataArray2);
         outputContext.putImageData(imageData2, 0, 0);
         busy = false;
         return outputCanvas.toDataURL();
@@ -489,7 +487,11 @@
           var colorBufferToSend = drawColorBuffer(depthColorBuffer);
           var buffersToSend = {depthBuffer: depthBufferToSend, depthColorBuffer: colorBufferToSend};
 
-          sendToPeer('depthBuffers', buffersToSend);
+          // currently sending every 1/3 second
+          if (Date.now() > sentTime + 300) {
+            sendToPeer('depthBuffers', buffersToSend);
+            sentTime = Date.now();
+          }
 
 
           if(busy) {

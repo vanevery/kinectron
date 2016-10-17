@@ -1,3 +1,6 @@
+# See [lisajamhoury's repo for the latest](https://github.com/lisajamhoury/kinectron)
+
+
 # Kinectron
 
 Kinectron is a node-based library that broadcasts Kinect2 data over a peer connection. It builds on the Node Kinect2 and PeerJS libraries. 

@@ -21,9 +21,6 @@ var canvas = null;
 var context = null;
 var canvasState = null;
 
-var outputCanvas = null;
-var outputContext = null;
-
 var COLORWIDTH = 1920;
 var COLORHEIGHT = 1080;
 
@@ -31,16 +28,7 @@ var DEPTHWIDTH = 512;
 var DEPTHHEIGHT = 424; 
 
 var RAWWIDTH = 512;
-var RAWHEIGHT = 212;
-
-var outputColorW = 960;
-var outputColorH = 540;
-
-var outputDepthW = 512;
-var outputDepthH = 424; 
-
-var OUTPUTRAWW = 512;
-var OUTPUTRAWH = 212; 
+var RAWHEIGHT = 424;
 
 var imageData = null;
 var imageDataSize = null;
@@ -55,15 +43,18 @@ var multiFrame = false;
 var currentFrames = null;
 var sentTime = Date.now();
 
+var rawDepth = false;
+var blockAPI = false;
+
 // Key Tracking needs cleanup
 var trackedBodyIndex = -1;
 
-// Skeleton variables
-var colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff'];
-var HANDSIZE = 20;
-var HANDCLOSEDCOLOR = 'red';
-var HANDOPENCOLOR = 'green';
-var HANDLASSOCOLOR = 'blue';
+// Record variables
+const recordingLocation = os.homedir() + "/kinectron-recordings/";
+var doRecord = false;
+var recordStartTime = 0;
+var bodyChunks = [];
+var mediaRecorders = [];
 
 window.addEventListener('load', initpeer);
 window.addEventListener('load', init);
@@ -82,9 +73,6 @@ function init() {
   canvas = document.getElementById('inputCanvas');
   context = canvas.getContext('2d');
 
-  outputCanvas = document.getElementById('outputCanvas');
-  outputContext = outputCanvas.getContext('2d');
-
   setImageData();
 
   document.getElementById('peersubmit').addEventListener('click', newPeerServer);
@@ -97,9 +85,9 @@ function init() {
   document.getElementById('depthheight').addEventListener('change', updateDimFields);
   document.getElementById('colorsubmit').addEventListener('click', setOutputDimensions);
   document.getElementById('depthsubmit').addEventListener('click', setOutputDimensions);
-  document.getElementById('rgb').addEventListener('click', chooseCamera);
+  document.getElementById('color').addEventListener('click', chooseCamera);
   document.getElementById('depth').addEventListener('click', chooseCamera);
-  // document.getElementById('raw-depth').addEventListener('click', chooseCamera);
+  document.getElementById('raw-depth').addEventListener('click', chooseCamera);
   document.getElementById('infrared').addEventListener('click', chooseCamera);
   document.getElementById('le-infrared').addEventListener('click', chooseCamera);
   document.getElementById('key').addEventListener('click', chooseCamera);
@@ -111,8 +99,179 @@ function init() {
   document.getElementById('multi').addEventListener('click', chooseMulti);
   document.getElementById('stop-multi').addEventListener('click', stopMulti);
   document.getElementById('advanced-link').addEventListener('click', toggleAdvancedOptions);
-
+  document.getElementById('record').addEventListener('click', toggleRecord);
+  document.getElementById('api-blocker').addEventListener('click', toggleAPIBlocker);
 }
+
+function toggleAPIBlocker(evt) {
+  var apiButton = document.getElementById('api-blocker');
+  var apiText = document.getElementById('api-blocker-intro');
+
+  if (!blockAPI) {
+    apiButton.value = "Allow API Calls";
+    apiText.innerHTML = "API Calls Are Blocked";
+  } else {
+    apiButton.value = "Block API Calls";
+    apiText.innerHTML = "API Calls Are Allowed";
+  }
+
+  blockAPI = !blockAPI;
+}
+
+// Only used for server-side record
+function toggleRecord(evt) {
+  if (!doRecord) {
+    doRecord = true;
+  } else {
+    doRecord = false;
+  }
+  record(evt);
+}
+
+// Only used for client-iniated record
+function startRecord() {
+  // if record already running, do nothing
+  if (doRecord) return;
+
+  // if not, set do record and run 
+  if (!doRecord) {
+    doRecord = true;
+    record();
+  }
+}
+
+function stopRecord() {
+  // if record already stopped, do nothing 
+  if (!doRecord) return;
+  // if running, turn record off
+  if (doRecord) {
+    doRecord = false;
+    record();
+  }
+}
+
+// Toggle Recording
+function record(evt) {
+  var recordButton = document.getElementById('record');
+  var serverSide = false;
+
+  if (evt) {
+    evt.preventDefault();
+    serverSide = true;
+  } 
+
+  console.log(serverSide);
+
+  if (doRecord) {
+    // If no frame selected, send alert
+    if (multiFrame === false && currentCamera === null) {
+      alert("Begin broadcast, then begin recording");
+      return;
+    }
+
+    var framesToRecord = [];
+
+    if (multiFrame) {
+      for (var i = 0; i < currentFrames.length; i++) {
+        if (currentFrames[i] == 'body') framesToRecord.push('skeleton');
+        else framesToRecord.push(currentFrames[i]);
+      }
+    } else if (currentCamera == 'body') { 
+      framesToRecord.push('skeleton');
+    } else {
+      framesToRecord.push(currentCamera);
+    }
+
+    for (var j = 0; j < framesToRecord.length; j++) {
+      mediaRecorders.push(createMediaRecorder(framesToRecord[j], serverSide));
+    }
+    
+    recordStartTime = Date.now();
+    //doRecord = true;
+
+    // Toggle record button color and text
+    toggleButtonState('record', 'active');
+    recordButton.value = "Stop Record";
+  } 
+
+  else {
+    //doRecord = false;
+    toggleButtonState('record', 'inactive');
+    recordButton.value = "Start Record";
+
+    // Stop media recorders
+    for (var k = mediaRecorders.length - 1; k >= 0; k--) {
+      mediaRecorders[k].stop();  
+      mediaRecorders.splice(k, 1);
+    } 
+  }
+}
+
+function createMediaRecorder(id, serverSide) {
+  var idToRecord = id + "-canvas";
+  var newMediaRecorder = new MediaRecorder(document.getElementById(idToRecord).captureStream());
+  var mediaChunks = [];
+
+  newMediaRecorder.onstop = function (e) {
+
+    // The video as a blob
+    var blob = new Blob(mediaChunks, { 'type' : 'video/webm' });
+
+    // Reset Chunks
+    mediaChunks.length = 0;
+
+    // Display the video on the page
+    // var videoElement = document.createElement('video');
+    // videoElement.setAttribute("id", Date.now());
+    // videoElement.controls = true;
+    // document.body.appendChild(videoElement);
+    // videoElement.src = window.URL.createObjectURL(blob);
+
+
+    var fs = require('fs');
+    try {
+        fs.mkdirSync(recordingLocation);
+    } catch (evt) {
+        if (evt.code != 'EEXIST') throw e;
+    }
+
+    // If skeleton data is being tracked, write out the body frames JSON
+    if (id == "skeleton") {
+      var bodyJSON = JSON.stringify(bodyChunks);
+      var filename = recordingLocation + "skeleton" + recordStartTime + ".json";
+      fs.writeFile(filename, bodyJSON, "utf8", function() {
+        if (serverSide === true) alert("Your file has been saved to " + filename);
+      });
+      bodyChunks.length = 0;        
+    }
+    
+    // Read the blob as a file
+    var reader = new FileReader();
+    reader.addEventListener('loadend', function(e) {
+      // Create the videoBuffer and write to file
+      var videoBuffer = new Buffer(reader.result);
+
+      // Write it out
+      var filename = recordingLocation + id + recordStartTime + ".webm";
+      fs.writeFile(filename, videoBuffer,  function(err){
+        if (err) console.log(err);
+        if (serverSide === true) alert("Your file has been saved to " + filename);
+      });
+    }, false);
+    reader.readAsArrayBuffer(blob);
+
+  };
+
+      // When video data is available
+  newMediaRecorder.ondataavailable = function(e) {
+    mediaChunks.push(e.data);
+  };
+
+  // Start recording
+  newMediaRecorder.start();
+  return newMediaRecorder;
+}
+
 
 function toggleFrameType(evt) {
   evt.preventDefault();
@@ -146,7 +305,6 @@ function toggleAdvancedOptions(evt) {
   var hide = "<a id=\"advanced-link\" href=\"#\">Hide Advanced Options</a>";
   var show = "<a id=\"advanced-link\" href=\"#\">Show Advanced Options</a>";
   advLink.innerHTML = advLink.innerHTML == hide ? show : hide;
-
 }
 
 function getIpAddress() {
@@ -157,7 +315,6 @@ function getIpAddress() {
     var alias = 0;
 
     ifaces[ifname].forEach(function (iface) {
-     // console.log('iface', iface);
       if ('IPv4' !== iface.family || iface.internal !== false) {
         // skip over internal (i.e. 127.0.0.1) and non-ipv4 addresses
         return;
@@ -203,7 +360,8 @@ function initpeer() {
     });
 
     connection.on('data', function(dataReceived) {
-
+      if (blockAPI == true) return;
+        
       switch (dataReceived.event) {
         case 'initfeed':
           if (dataReceived.data.feed) {
@@ -218,6 +376,11 @@ function initpeer() {
         case 'multi': 
           chooseMulti(null, dataReceived.data);
         break;
+
+        case 'record':
+          if (dataReceived.data == 'start') startRecord();
+          if (dataReceived.data == 'stop') stopRecord(); 
+        break;  
       }
     
     });
@@ -296,34 +459,33 @@ function updateDimFields(evt) {
 }
 
 function setOutputDimensions(evt) {
-  var element = evt.srcElement;
-  var elementId = element.id;
-  
   evt.preventDefault();
 
-  switch (elementId) {
-    case 'colorsubmit':
-      outputColorW = document.getElementById('colorwidth').value;
-      outputColorH = document.getElementById('colorheight').value;
+  var allCanvases = ['color', 'depth', 'raw-depth', 'skeleton', 'infrared', 'le-infrared', 'key'];
 
-      if (canvasState == 'color' || canvasState === null) {
-        resetCanvas('color');
-      }
-    break;
+  var element = evt.srcElement;
+  var elementId = element.id;
 
-    case 'depthsubmit':
-      outputDepthW = document.getElementById('depthwidth').value;
-      outputDepthH = document.getElementById('depthheight').value;
-      if (canvasState == 'depth' || canvasState === null) {
-        resetCanvas('depth');
-      }
-    break;
+  for (var i = 0; i < allCanvases.length; i++) {
+    var currentCanvas = document.getElementById(allCanvases[i] + '-canvas');
+    var currentCanvasResolution = (currentCanvas.width / currentCanvas.height).toFixed(1);
 
-    // Needed?
-    case 'raw':
-      return;
-    break;
-  }
+    switch (elementId) {
+      case 'colorsubmit':
+        if (currentCanvasResolution == 1.8) {
+          currentCanvas.width = document.getElementById('colorwidth').value;
+          currentCanvas.height = document.getElementById('colorheight').value;
+        }
+      break;
+
+      case 'depthsubmit':
+        if (currentCanvasResolution == 1.2) {
+          currentCanvas.width = document.getElementById('depthwidth').value;
+          currentCanvas.height = document.getElementById('depthheight').value;
+        }
+      break;
+    }
+  } 
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -339,11 +501,6 @@ function chooseCamera(evt, feed) {
     camera = feed;
   }
 
-  if (currentCamera === null) {
-    console.log("its null");
-    toggleImagePreviewWarning("none");
-  }
-
   // Turn off multiframe if it is running
   if (multiFrame) {
     stopMulti();
@@ -355,6 +512,8 @@ function chooseCamera(evt, feed) {
     if (currentCamera) {
       changeCameraState(currentCamera, 'stop');
       toggleButtonState(currentCamera, 'inactive');
+      toggleFeedDiv(currentCamera, "none");
+
       currentCamera = null;
       return;
     } else {
@@ -364,15 +523,19 @@ function chooseCamera(evt, feed) {
     if (currentCamera) {
       changeCameraState(currentCamera, 'stop');
       toggleButtonState(currentCamera, 'inactive');
+      toggleFeedDiv(currentCamera, "none");
+
     } 
     changeCameraState(camera, 'start');
     toggleButtonState(camera, 'active');
+    toggleFeedDiv(camera, "block");
+
     currentCamera = camera;
   }
 }
 
-function toggleButtonState(camera, state) {
-  var button = document.getElementById(camera);
+function toggleButtonState(buttonId, state) {
+  var button = document.getElementById(buttonId);
 
   if (state == "active") {
     button.style.background = "#1daad8";
@@ -381,13 +544,34 @@ function toggleButtonState(camera, state) {
   }
 }
 
+function toggleFeedDiv(camera, state) {
+  var divsToShow = [];
+  if (camera == 'multi') {
+    for (var i = 0; i < currentFrames.length; i++) {
+      if (currentFrames[i] == 'body') divsToShow.push('skeleton');
+      else divsToShow.push(currentFrames[i]);
+    }
+  } else if (camera == 'body') { 
+    divsToShow.push('skeleton');
+  } else {
+    divsToShow.push(camera);
+  }
+
+  for (var j = 0; j < divsToShow.length; j ++) {
+    var divId = divsToShow[j] + "-div";
+    var feedDiv = document.getElementById(divId);
+
+    feedDiv.style.display = state;
+  }
+}
+
 function changeCameraState(camera, state) {
   var cameraCode;
   var changeStateFunction;
 
   switch (camera) {
-    case 'rgb':
-      cameraCode = 'RGB';  
+    case 'color':
+      cameraCode = 'Color';  
     break;
 
     case 'depth':
@@ -464,8 +648,9 @@ function chooseMulti(evt, incomingFrames) {
     }
   } 
 
+  // if no frames selected, return
   if (frames.length === 0) {
-    console.warn("Select at least one frame.");
+    alert("Select at least one frame.");
     return;
   }
 
@@ -473,11 +658,11 @@ function chooseMulti(evt, incomingFrames) {
   currentFrames = frames;
 
   // TO DO Simplify the case and result per Shawn 
-  for (var i = 0; i < frames.length; i++) {
+  for (var j = 0; j < frames.length; j++) {
     var frameName;
     var tempName;
 
-    frameName = frames[i];
+    frameName = frames[j];
 
     switch (frameName) {
       case 'color':
@@ -492,17 +677,17 @@ function chooseMulti(evt, incomingFrames) {
         multiFrames.push(Kinect2.FrameType.body);
       break;
       
-      case 'rawDepth':
+      case 'raw-depth':
         multiFrames.push(Kinect2.FrameType.rawDepth);
       break;
 
-      case 'bodyIndexColor':
-        multiFrames.push(Kinect2.FrameType.bodyIndexColor);
-      break;
+      // case 'bodyIndexColor':
+      //   multiFrames.push(Kinect2.FrameType.bodyIndexColor);
+      // break;
 
-      case 'depthColor':
-        multiFrames.push(Kinect2.FrameType.depthColor);
-      break;
+      // case 'depthColor':
+      //   multiFrames.push(Kinect2.FrameType.depthColor);
+      // break;
 
       //infrared is not implemented for multiframe yet
       // case 'infrared': 
@@ -516,7 +701,7 @@ function chooseMulti(evt, incomingFrames) {
   }
  
   result = multiFrames.reduce(function (a, b) { return a | b; });
-
+  toggleFeedDiv('multi', 'block');
   startMulti(result);
 }
 
@@ -524,8 +709,11 @@ function chooseMulti(evt, incomingFrames) {
 ////////////////////////////////////////////////////////////////////////
 //////////////////////////// Kinect2 Frames ////////////////////////////
 
-function startRGB() {
+function startColor() {
   console.log('starting color camera');
+
+  var colorCanvas = document.getElementById('color-canvas');
+  var colorContext = colorCanvas.getContext('2d');
 
   resetCanvas('color');
   canvasState = 'color';
@@ -541,7 +729,7 @@ function startRGB() {
 
       processColorBuffer(newPixelData);
 
-      drawImageToCanvas('color', 'jpeg');
+      drawImageToCanvas(colorCanvas, colorContext, 'color', 'jpeg');
       busy = false;
 
     });
@@ -550,7 +738,7 @@ function startRGB() {
 
 }
 
-function stopRGB() {
+function stopColor() {
   console.log('stopping color camera');
   kinect.closeColorReader();
   kinect.removeAllListeners();
@@ -560,6 +748,9 @@ function stopRGB() {
 
 function startDepth() {
   console.log("start depth camera");
+
+  var depthCanvas = document.getElementById('depth-canvas');
+  var depthContext = depthCanvas.getContext('2d');
 
   resetCanvas('depth');
   canvasState = 'depth';
@@ -573,7 +764,7 @@ function startDepth() {
       busy = true;
 
       processDepthBuffer(newPixelData);
-      drawImageToCanvas('depth', 'jpeg');
+      drawImageToCanvas(depthCanvas, depthContext, 'depth', 'jpeg');
       busy = false;
     });
   }
@@ -591,19 +782,30 @@ function stopDepth() {
 function startRawDepth() {
   console.log("start Raw Depth Camera");
 
+  var rawDepthCanvas = document.getElementById('raw-depth-canvas');
+  var rawDepthContext = rawDepthCanvas.getContext('2d');
+
   resetCanvas('raw');
   canvasState = 'raw';
   setImageData();
 
+  rawDepth = true;
   if(kinect.open()) {
     kinect.on('rawDepthFrame', function(newPixelData){
       if(busy) {
         return;
       }
       busy = true;
-
+     
       processRawDepthBuffer(newPixelData);
-      drawImageToCanvas('rawDepth', 'png');
+      var rawDepthImg = drawImageToCanvas(rawDepthCanvas, rawDepthContext, 'rawDepth', 'webp', 1);
+
+      // limit raw depth to 25 fps  
+      if (Date.now() > sentTime + 40) {
+        sendToPeer('rawDepth', rawDepthImg);
+      sentTime = Date.now();
+      }
+      
       busy = false;
     });
   }
@@ -611,14 +813,19 @@ function startRawDepth() {
 }
 
 function stopRawDepth() {
+  console.log("stopping raw depth camera");
   kinect.closeRawDepthReader();
   kinect.removeAllListeners();
   canvasState = null;
+  rawDepth = false;
   busy = false;
 }
 
 function startInfrared() {
   console.log('starting infrared camera');
+
+  var infraredCanvas = document.getElementById('infrared-canvas');
+  var infraredContext = infraredCanvas.getContext('2d');
 
   resetCanvas('depth');
   canvasState = 'depth';
@@ -633,12 +840,11 @@ function startInfrared() {
       busy = true;
       
       processDepthBuffer(newPixelData);
-      drawImageToCanvas('infrared', 'jpeg');
+      drawImageToCanvas(infraredCanvas, infraredContext, 'infrared', 'jpeg');
       
       busy = false;
     });
   }
-
   kinect.openInfraredReader();
 
 }
@@ -654,6 +860,9 @@ function stopInfrared() {
 function startLEInfrared() {
   console.log('starting le-infrared');
 
+  var leInfraredCanvas = document.getElementById('le-infrared-canvas');
+  var leInfraredContext = leInfraredCanvas.getContext('2d');
+
   resetCanvas('depth');
   canvasState = 'depth';
   setImageData();
@@ -667,7 +876,7 @@ function startLEInfrared() {
       busy = true;
       
       processDepthBuffer(newPixelData);
-      drawImageToCanvas('LEinfrared', 'jpeg');
+      drawImageToCanvas(leInfraredCanvas, leInfraredContext, 'LEinfrared', 'jpeg');
 
       busy = false;
     });
@@ -687,7 +896,10 @@ function stopLEInfrared() {
 
 function startSkeletonTracking() {
   console.log('starting skeleton');
-  
+
+  var skeletonCanvas = document.getElementById('skeleton-canvas');
+  var skeletonContext = skeletonCanvas.getContext('2d');
+
   resetCanvas('depth');
   canvasState = 'depth';
 
@@ -695,29 +907,27 @@ function startSkeletonTracking() {
     kinect.on('bodyFrame', function(bodyFrame){
       if(sendAllBodies) {
         sendToPeer('bodyFrame', bodyFrame);
+        if (doRecord) {
+          bodyFrame.record_startime = recordStartTime;
+          bodyFrame.record_timestamp = Date.now() - recordStartTime;
+          bodyChunks.push(bodyFrame);
+        }
       }
 
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+      skeletonContext.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
       var index = 0;
       bodyFrame.bodies.forEach(function(body){
         if(body.tracked) {
           if (!sendAllBodies) {
             sendToPeer('trackedBodyFrame', body);
+            if (doRecord) {
+              body.record_startime = recordStartTime;
+              body.record_timestamp = Date.now() - recordStartTime;
+              bodyChunks.push(body);
+            }
           }
-          for(var jointType in body.joints) {
-            var joint = body.joints[jointType];
-            context.fillStyle = colors[index];
-            context.fillRect(joint.depthX * canvas.width, joint.depthY * canvas.height, 10, 10);
-            outputContext.fillStyle = colors[index];
-            outputContext.fillRect(joint.depthX * outputCanvas.width, joint.depthY * outputCanvas.height, 10, 10);
-          }
-          //draw hand states
-          updateHandState(context, body.leftHandState, body.joints[Kinect2.JointType.handLeft]);
-          updateHandState(outputContext, body.leftHandState, body.joints[Kinect2.JointType.handLeft]);
-          updateHandState(context, body.rightHandState, body.joints[Kinect2.JointType.handRight]);
-          updateHandState(outputContext, body.rightHandState, body.joints[Kinect2.JointType.handRight]);
 
+          drawSkeleton(skeletonCanvas, skeletonContext, body, index);
           index++;
 
         }
@@ -736,14 +946,6 @@ function stopSkeletonTracking() {
 
 }
 
-function toggleImagePreviewWarning(style) {
-  var allWarningDivs = document.getElementsByClassName('multi-warning');
-
-  for (var i = 0; i < allWarningDivs.length; i++) {
-    allWarningDivs[i].style.display = style;
-  } 
-}
-
 function displayCurrentFrames() {
   var allFrameDisplay = document.getElementsByClassName('current-frames');
   
@@ -757,11 +959,6 @@ function startMulti(multiFrames) {
 
   var options = {frameTypes: multiFrames};
   var multiToSend = {};
-
-  // show image preview warning 
-  if (multiFrame === false) {
-    toggleImagePreviewWarning("block");
-  }
 
   displayCurrentFrames();
 
@@ -777,52 +974,110 @@ function startMulti(multiFrames) {
       var temp;
 
       if (frame.color) {
+
+        var colorCanvas = document.getElementById('color-canvas');
+        var colorContext = colorCanvas.getContext('2d');
+        
         resetCanvas('color');
         canvasState = 'color';
         setImageData();
 
         newPixelData = frame.color.buffer;
         processColorBuffer(newPixelData);
-        temp = drawImageToCanvas(null, 'jpeg');
+        temp = drawImageToCanvas(colorCanvas, colorContext, null, 'jpeg');
         multiToSend.color = temp;
       }
 
       if (frame.body) {
+        var skeletonCanvas = document.getElementById('skeleton-canvas');
+        var skeletonContext = skeletonCanvas.getContext('2d');
+
+        if (doRecord) {
+          frame.body.record_startime = recordStartTime;
+          frame.body.record_timestamp = Date.now() - recordStartTime;
+          bodyChunks.push(frame.body);
+        }
+
+        // index used to change colors on draw
+        var index = 0;
+
+        // draw tracked bodies
+        skeletonContext.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
+        frame.body.bodies.forEach(function(body){
+          if(body.tracked) {
+            drawSkeleton(skeletonCanvas, skeletonContext, body, index);
+            index++;
+          }
+        });
+
         multiToSend.body = frame.body.bodies;
       }
 
       if (frame.depth) {
+        var depthCanvas = document.getElementById('depth-canvas');
+        var depthContext = depthCanvas.getContext('2d');
+        
         resetCanvas('depth');
         canvasState = 'depth';
         setImageData();
 
         newPixelData = frame.depth.buffer;
         processDepthBuffer(newPixelData);
-        temp = drawImageToCanvas(null, 'png');
+        temp = drawImageToCanvas(depthCanvas, depthContext, null, 'jpeg');
         multiToSend.depth = temp;
       }
 
       if (frame.rawDepth) {
+        var rawDepthCanvas = document.getElementById('raw-depth-canvas');
+        var rawDepthContext = rawDepthCanvas.getContext('2d');
+
         resetCanvas('raw');
         canvasState = 'raw';
         setImageData();
   
         newPixelData = frame.rawDepth.buffer;
         processRawDepthBuffer(newPixelData);
-        temp = drawImageToCanvas(null, 'png');
+        temp = drawImageToCanvas(rawDepthCanvas, rawDepthContext, null, 'webp', 1);
         multiToSend.rawDepth = temp;
       }
 
-      // TO DO Implement depthColor and bodyIndexColor -- RGBD?
+      // TO DO Integrate into interface  
       // if (frame.depthColor) {
+      //   resetCanvas('depth');
+      //   canvasState = 'depth';
+      //   setImageData();
+
+      //   newPixelData = frame.depthColor.buffer;
+      //   processColorBuffer(newPixelData);
+      //   temp = drawImageToCanvas(null, 'jpeg');
+      //   multiToSend.depthColor = temp;
+
       // }
+
+      // function drawColorBuffer(imageBuffer) {
+      //   if(busy) {
+      //     return;
+      //   }
+      //   busy = true;
+      //   var newPixelData = new Uint8Array(imageBuffer);
+      //   for (var i = 0; i < imageDataSize; i++) {
+      //     imageDataArray[i] = newPixelData[i];
+      //   }
+      //   context.putImageData(imageData, 0, 0);
+      //   busy = false;
+      //   // send really low quality image data to prioritize depth data
+      //   return canvas.toDataURL("image/jpeg", 0.1);
+      // }
+
+
+      // TO DO Implement depthColor and bodyIndexColor -- RGBD?
 
       // Used in greenkey  
       // if (frame.bodyIndexColor) { 
       // }
 
-      // Frame rate limiting
-      // if (Date.now() > sentTime + 42) {
+      //Frame rate limiting
+      // if (Date.now() > sentTime + 40) {
       //   sendToPeer('multiFrame', multiToSend);
       //   sentTime = Date.now();
       // }
@@ -842,6 +1097,7 @@ function stopMulti() {
   if (multiFrame) {
     kinect.closeMultiSourceReader();
     kinect.removeAllListeners();
+    toggleFeedDiv('multi', 'none');
     canvasState = null;
     busy = false;
     multiFrame = false;
@@ -850,6 +1106,10 @@ function stopMulti() {
 
 function startKey() {
   console.log('starting key');
+
+  var keyCanvas = document.getElementById('key-canvas');
+  var keyContext = keyCanvas.getContext('2d');
+
 
   resetCanvas('color');
   canvasState = 'color';
@@ -881,7 +1141,7 @@ function startKey() {
                 imageDataArray[i] = newPixelData[i];
               }
 
-              drawImageToCanvas('key', 'png');
+              drawImageToCanvas(keyCanvas, keyContext, 'key', 'webp');
             }
           }
         }
@@ -904,83 +1164,83 @@ function stopKey() {
 }
 
 
-function startFHJoint() {
+// function startFHJoint() {
 
-  resetCanvas('color');
-  canvasState = 'color';
-  setImageData();
+//   resetCanvas('color');
+//   canvasState = 'color';
+//   setImageData();
   
-  trackedBodyIndex = -1;
+//   trackedBodyIndex = -1;
 
-  if(kinect.open()) {
-    kinect.on('multiSourceFrame', function(frame){
+//   if(kinect.open()) {
+//     kinect.on('multiSourceFrame', function(frame){
 
-      if(busy) {
-        return;
-      }
-      busy = true;
+//       if(busy) {
+//         return;
+//       }
+//       busy = true;
     
-      // draw color image to canvas          
-      var newPixelData = frame.color.buffer;
-      for (var i = 0; i < imageDataSize; i++) {
-        imageDataArray[i] = newPixelData[i];
-      }
+//       // draw color image to canvas          
+//       var newPixelData = frame.color.buffer;
+//       for (var i = 0; i < imageDataSize; i++) {
+//         imageDataArray[i] = newPixelData[i];
+//       }
 
-      //drawImageToCanvas('fhcolor', 'jpeg');
+//       //drawImageToCanvas('fhcolor', 'jpeg');
   
-      // get closest body
-      var closestBodyIndex = getClosestBodyIndex(frame.body.bodies);
-      if(closestBodyIndex !== trackedBodyIndex) {
-        if(closestBodyIndex > -1) {
-          kinect.trackPixelsForBodyIndices([closestBodyIndex]);
-        } else {
-          kinect.trackPixelsForBodyIndices(false);
-        }
-      }
-      else {
-        if(closestBodyIndex > -1) {
-          //measure distance from floor
-          if(frame.body.floorClipPlane)
-          {
-            //get position of left hand
-            var joint = frame.body.bodies[closestBodyIndex].joints[Kinect2.JointType.handLeft];
+//       // get closest body
+//       var closestBodyIndex = getClosestBodyIndex(frame.body.bodies);
+//       if(closestBodyIndex !== trackedBodyIndex) {
+//         if(closestBodyIndex > -1) {
+//           kinect.trackPixelsForBodyIndices([closestBodyIndex]);
+//         } else {
+//           kinect.trackPixelsForBodyIndices(false);
+//         }
+//       }
+//       else {
+//         if(closestBodyIndex > -1) {
+//           //measure distance from floor
+//           if(frame.body.floorClipPlane)
+//           {
+//             //get position of left hand
+//             var joint = frame.body.bodies[closestBodyIndex].joints[Kinect2.JointType.handLeft];
 
-            //https://social.msdn.microsoft.com/Forums/en-US/594cf9ed-3fa6-4700-872c-68054cac5bf0/angle-of-kinect-device-and-effect-on-xyz-positional-data?forum=kinectv2sdk
-            var cameraAngleRadians= Math.atan(frame.body.floorClipPlane.z / frame.body.floorClipPlane.y);
-            var cosCameraAngle = Math.cos(cameraAngleRadians);
-            var sinCameraAngle = Math.sin(cameraAngleRadians);
-            var yprime = joint.cameraY * cosCameraAngle + joint.cameraZ * sinCameraAngle;
-            var jointDistanceFromFloor = frame.body.floorClipPlane.w + yprime;
+//             //https://social.msdn.microsoft.com/Forums/en-US/594cf9ed-3fa6-4700-872c-68054cac5bf0/angle-of-kinect-device-and-effect-on-xyz-positional-data?forum=kinectv2sdk
+//             var cameraAngleRadians= Math.atan(frame.body.floorClipPlane.z / frame.body.floorClipPlane.y);
+//             var cosCameraAngle = Math.cos(cameraAngleRadians);
+//             var sinCameraAngle = Math.sin(cameraAngleRadians);
+//             var yprime = joint.cameraY * cosCameraAngle + joint.cameraZ * sinCameraAngle;
+//             var jointDistanceFromFloor = frame.body.floorClipPlane.w + yprime;
 
-            //show height in canvas
-            showHeight(context, joint, jointDistanceFromFloor);
-            showHeight(outputContext, joint, jointDistanceFromFloor);
+//             //show height in canvas
+//             showHeight(context, joint, jointDistanceFromFloor);
+//             showHeight(outputContext, joint, jointDistanceFromFloor);
 
-            //send height data to remote
-            var jointDataToSend = {joint: joint, distance: jointDistanceFromFloor};
+//             //send height data to remote
+//             var jointDataToSend = {joint: joint, distance: jointDistanceFromFloor};
 
-            sendToPeer('floorHeightTracker', jointDataToSend);
-          }
-        }
-      }
+//             sendToPeer('floorHeightTracker', jointDataToSend);
+//           }
+//         }
+//       }
 
-      trackedBodyIndex = closestBodyIndex;
-      busy = false;
-    });
+//       trackedBodyIndex = closestBodyIndex;
+//       busy = false;
+//     });
 
-    kinect.openMultiSourceReader({
-      frameTypes: Kinect2.FrameType.body | Kinect2.FrameType.color
-    });
-  }
-}
+//     kinect.openMultiSourceReader({
+//       frameTypes: Kinect2.FrameType.body | Kinect2.FrameType.color
+//     });
+//   }
+// }
 
-function stopFHJoint() {
-  console.log('stopping FHJoint');
-  kinect.closeMultiSourceReader();
-  kinect.removeAllListeners();
-  canvasState = null;
-  busy = false;
-}
+// function stopFHJoint() {
+//   console.log('stopping FHJoint');
+//   kinect.closeMultiSourceReader();
+//   kinect.removeAllListeners();
+//   canvasState = null;
+//   busy = false;
+// }
 
 // function startScaleUser() {
 //   console.log('start scale user');
@@ -1092,43 +1352,47 @@ function setImageData() {
 
 function resetCanvas(size) {
   context.clearRect(0, 0, canvas.width, canvas.height);
-  outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+  //outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
 
   switch (size) {
     case 'depth':
       canvas.width = DEPTHWIDTH;
       canvas.height = DEPTHHEIGHT;
-      outputCanvas.width = outputDepthW;
-      outputCanvas.height = outputDepthH;
+      //outputCanvas.width = outputDepthW;
+      //outputCanvas.height = outputDepthH;
     break;
 
     case 'color':
       canvas.width = COLORWIDTH;
       canvas.height = COLORHEIGHT; 
-      outputCanvas.width = outputColorW;
-      outputCanvas.height = outputColorH;
+      //outputCanvas.width = outputColorW;
+      //outputCanvas.height = outputColorH;
     break;
 
     case 'raw':
       canvas.width = RAWWIDTH;
       canvas.height = RAWHEIGHT; 
-      outputCanvas.width = OUTPUTRAWW;
-      outputCanvas.height = OUTPUTRAWH;
+      //outputCanvas.width = OUTPUTRAWW;
+      //outputCanvas.height = OUTPUTRAWH;
     break;
   }
-  
 }
     
-function drawImageToCanvas(frameType, imageType) {
+function drawImageToCanvas(inCanvas, inContext, frameType, imageType, quality) {
   var outputCanvasData;
+  var imageQuality = 0.5;
   var dataToSend;
 
+  if (typeof quality !=="undefined") imageQuality = quality;
+
   context.putImageData(imageData, 0, 0);
-  outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
-  outputContext.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height);
-  outputCanvasData = outputCanvas.toDataURL("image/" + imageType, 0.5);
+  inContext.clearRect(0, 0, inCanvas.width, inCanvas.height);
+  inContext.drawImage(canvas, 0, 0, inCanvas.width, inCanvas.height);
+  outputCanvasData = inCanvas.toDataURL("image/" + imageType, imageQuality);
 
   if (multiFrame) {
+    return outputCanvasData;
+  } else if (rawDepth) {
     return outputCanvasData;
   } else {
     packageData(frameType, outputCanvasData);
@@ -1160,14 +1424,13 @@ function processDepthBuffer(newPixelData){
 
 function processRawDepthBuffer(newPixelData) {
   var j = 0;
-
-  for (var i = 0; i < imageDataSize; i+=1) {
+  for (var i = 0; i < imageDataSize; i+=4) {
     imageDataArray[i] = newPixelData[j];
-    j+=1;
+    imageDataArray[i+1] = newPixelData[j+1];
+    imageDataArray[i+2] = 0;
+    imageDataArray[i+3] = 0xff;
+    j+=2;
   }
-
-  // outputContext.putImageData(imageData, 0, 0);
-  // return outputCanvas.toDataURL();
 }
 
 function getClosestBodyIndex(bodies) {
@@ -1200,19 +1463,38 @@ function calculatePixelWidth(horizontalFieldOfView, depth) {
   return pixelWidth / numPixels;
 }
 
-function showHeight(context, joint, jointDistance) {
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
-  context.beginPath();
-  context.fillStyle = 'red';
-  context.arc(joint.colorX * context.canvas.width, joint.colorY * context.canvas.height, 10, 0, Math.PI * 2, true);
-  context.fill();
-  context.closePath();
-  context.font = '48px sans';
-  context.fillText(jointDistance.toFixed(2) + 'm', 20 + joint.colorX * context.canvas.width, joint.colorY * context.canvas.height);
+// function showHeight(context, joint, jointDistance) {
+//   context.clearRect(0, 0, canvas.width, canvas.height);
+//   outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+//   context.beginPath();
+//   context.fillStyle = 'red';
+//   context.arc(joint.colorX * context.canvas.width, joint.colorY * context.canvas.height, 10, 0, Math.PI * 2, true);
+//   context.fill();
+//   context.closePath();
+//   context.font = '48px sans';
+//   context.fillText(jointDistance.toFixed(2) + 'm', 20 + joint.colorX * context.canvas.width, joint.colorY * context.canvas.height);
+// }
+
+function drawSkeleton(inCanvas, inContext, body, index) {
+  // Skeleton variables
+  var colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff'];
+  //draw joints
+  for(var jointType in body.joints) {
+    var joint = body.joints[jointType];
+    inContext.fillStyle = colors[index];
+    inContext.fillRect(joint.depthX * inCanvas.width, joint.depthY * inCanvas.height, 10, 10);
+  }
+  
+  //draw hand states
+  updateHandState(inContext, body.leftHandState, body.joints[Kinect2.JointType.handLeft]);
+  updateHandState(inContext, body.rightHandState, body.joints[Kinect2.JointType.handRight]);
 }
 
 function updateHandState(context, handState, jointPoint) {
+  var HANDCLOSEDCOLOR = 'red';
+  var HANDOPENCOLOR = 'green';
+  var HANDLASSOCOLOR = 'blue';
+  
   switch (handState) {
     case Kinect2.HandState.closed:
       drawHand(context, jointPoint, HANDCLOSEDCOLOR);
@@ -1229,6 +1511,7 @@ function updateHandState(context, handState, jointPoint) {
 }
 
 function drawHand(context, jointPoint, handColor) {
+  var HANDSIZE = 20;
   // draw semi transparent hand cicles
   var handData = {depthX: jointPoint.depthX, depthY: jointPoint.depthY, handColor: handColor, handSize: HANDSIZE};
   //sendToPeer('drawHand', handData);
@@ -1240,11 +1523,3 @@ function drawHand(context, jointPoint, handColor) {
   context.closePath();
   context.globalAlpha = 1;
 }
-
-
-
-
-
-
-
-

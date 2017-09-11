@@ -10,7 +10,7 @@ Kinectron has two components--an electron application to broadcast Kinect2 data 
 ## Kinectron Application Installation 
 You will need to be running Windows 8 or Windows 10 for the app to run correctly. If you are running Windows 8, you will also need to download and install the [Official Kinect2 SDK](https://www.microsoft.com/en-us/download/details.aspx?id=44561) before running Kinectron.
 
-Download and unzip [preview release 0.0.4.5](https://github.com/lisajamhoury/kinectron/releases/tag/0.0.4.5).
+Download and unzip [preview release 0.0.4.8](https://github.com/lisajamhoury/kinectron/releases/tag/0.0.4.8).
 
 We recommend unzipping the folder directly at the C:\ drive level to avoid an error with Windows filename size limitations.
 
@@ -41,6 +41,7 @@ To start a frame, click the corresponding button. The frame will start automatic
 
 -"Color" returns a jpeg of the color camera.  
 -"Depth" returns a jpeg of the depth camera.  
+-"Raw Depth" returns an array of values ranging from 0 - 8191. It displays a lossless webp image in the application for testing and feedback.    
 -"Skeleton (Tracked Bodies)" returns all tracked bodies one at a time. It does not differentiate between tracked bodies. For troubleshooting, Kinectron by default will draw the tracked bodies on the application interface, however, only the body data is sent over the peer connection.  
 -"All Bodies" returns an array of all six bodies, tracked or not tracked. For troubleshooting, Kinectron by default will draw the tracked bodies on the application interface, however, only the data is sent over the peer connection. 
 -"Infrared" returns a jpeg of the infrared camera.  
@@ -53,9 +54,35 @@ Multiframe broadcasts several frames simultaneously in a single feed. Click the 
 
 Select the checkboxes for the desired frames, then click "Start Multiframe." Click "Stop Multiframe" to end multiframe broadcast.  
 
-Available frames correspond to the frames listed under Single Frame. Only color, depth and body are currently available under multiframe. 
+Available frames correspond to the frames listed under Single Frame. Color, depth, raw depth and body are currently available under multiframe. 
 
-Running multiple frames at once may impact the speed of your broadcast, depending on the system you are running on and the speed of your network.  
+Running multiple frames at once may impact the speed of your broadcast depending on the system you are running and the speed of your network.  
+
+#### Recording
+
+##### Recording Single Frames
+To record a single frame, click the button corresponding to the frame that you want to record. Once the broadcast has started, click "Start Record" to begin recording. Click the button a second time "Stop Record" to end recording. The file will be saved automatically to your home folder in "Kinectron Recordings."
+
+##### Recording Multiple Frames 
+To record multiple frames, start the frames you wish to record, then click "Start Record" to begin recording. Click the button a second time "Stop Record" to end recording. The files will be saved automatically to your home folder in "Kinectron Recordings."
+
+##### Recorded File Types
+The recorded frames result in the following file types. These vary slighty if recording with the API. See API documentation. 
+
+```
+Color: webm
+Depth: webm
+Raw Depth: webm
+Skeleton: webm (joints drawn to canvas) and JSON (joint data)*
+All Bodies: webm (joints drawn to canvas) and JSON (joint data)*
+Infrared: webm
+Long Exposure Infrared: webm
+Key: webm
+
+*JSON files with joint data include a timestamp.
+
+```
+
 
 #### Advanced Options
 ##### Peer Server
@@ -85,6 +112,11 @@ Kinectron outputs them at the following dimensions by default:
 	Depth: 512 x 424
 
 Change the Kinectron output dimensions by entering the desired width or height and clicking "Submit." 
+
+##### Allow/Block API Calls
+By default the Kinectron application listens for calls from the client-side API. Block API calls by clicking the "Block API Calls" button under Advanced Options. Blocking API calls will allow you to continue to broadcast to clients, but clients will not be able to make changes to the application settings through the API. 
+
+To allow API calls, click "Allow API Calls." This immediately allows API calls again. 
 
 ## Using the Client-side API
 Include the library in the head of your document. 
@@ -132,8 +164,9 @@ kinectron.makeConnection();
 Request a frame from the application using the start function for the desired frame. Each start function optionally takes a callback. See descriptions of the return of each frame under "Choosing A Frame."
 
 ```
-kinectron.startRGB(myCallback);
+kinectron.startColor(myCallback);
 kinectron.startDepth(myCallback);
+kinectron.startRawDepth(myCallback);
 kinectron.startTrackedBodies(myCallback);
 kinectron.startTrackedJoint(kinectron.HANDRIGHT, myCallback); // See "Accessing Joints" below
 kinectron.startBodies(myCallback);
@@ -147,8 +180,9 @@ kinectron.startKey(myCallback);
 Callbacks on the frames can be set either as an argument on the start function (see "Request A Frame") or with the set callback function. Kinectron will use the most recently declared callback. 
 
 ```
-kinectron.setRGBCallback(myCallback);
+kinectron.setColorCallback(myCallback);
 kinectron.setDepthCallback(myCallback);
+kinectron.setRawDepthCallback(myCallback);
 kinectron.setTrackedBodiesCallback(myCallback);
 kinectron.setBodiesCallback(myCallback);
 kinectron.setInfraredCallback(myCallback);
@@ -160,7 +194,7 @@ kinectron.setKeyCallback(myCallback);
 
 Use the start multiframe function to request multiple frames in the same broadcast feed. The function takes two arguments. 
 
-The first argument is an array with the names of the desired frames. Frame names are case sensitive, must be spelled correctly, and must be contained in quotes. The following frames are currently available: 'color', 'depth', and 'body'.
+The first argument is an array with the names of the desired frames. Frame names are case sensitive, must be spelled correctly, and must be contained in quotes. The following frames are currently available: 'color', 'depth', 'raw-depth', and 'body'.
 
 The second argument is an optional callback. If the callback is included, it will be executed on all the data that is being broadcast. If the callback is not set, the callback set for each frame will be called. 
 
@@ -180,7 +214,7 @@ Example with multiframe callback set.
 Example with individual callbacks set. 
 
 ```
-	kinectron.setRGBCallback(colorCallback);
+	kinectron.setColorCallback(colorCallback);
 	kinectron.setDepthCallback(depthCallback);
 	kinectron.setBodiesCallback(bodyCallback);
 
@@ -278,4 +312,55 @@ Get hands returns an object containing the left and right hand joints, and the l
 ```
 kinectron.getHands(myDrawHandsFunction);
 ```
+
+### Recording
+It is possible to record from the API on both the client side and the server side.
+
+#### Server-side Recording
+Use startServerRecord and stopServerRecord to begin and end recording on the Kinectron server. Recording will not begin unless a feed is running. It's a good idea to attach the start and stop functions to key presses or buttons.
+
+```
+<html>
+	<body>
+		<button onclick="startServerRecord()">Start Record</button>
+		<button onclick="stopServerRecord()">Stop Record</button>
+	</body>
+</html>
+``` 
+
+Files recorded with the server-side recording from the API will be saved automatically to the home folder of the computer running the server in the "Kinectron Recordings" folder.
+
+The recorded file types will match those listed in [Application Recording](#recorded-file-types).
+
+#### Client-side Recording
+Use the startRecord and stopRecord functions to begin and end recording on the client side. Recording will not begin unless a feed is running. It's a good idea to attach startRecord and stopRecord to key presses or buttons. 
+
+```
+<html>
+	<body>
+		<button onclick="startRecord()">Start Record</button>
+		<button onclick="stopRecord()">Stop Record</button>
+	</body>
+</html>
+```
+
+**Important!** You will be prompted to download multiple files if recording more than one stream in the browser. You may have to allow multiple downloads on the site. If you continue to have trouble, make sure that the option for "Ask where to save each file before downloading" in Chrome Advanced Settings is **unchecked.** This will by default block multiple downloads. 
+
+#### Client-side Recorded File Types
+The recorded frames result in the following file types. These vary slighty if recording with the application. See application documentation for differences. 
+
+```
+Color: webm
+Depth: webm
+Raw Depth: JSON (array data)*
+Skeleton: JSON (joint data)*
+All Bodies: JSON (joint data)*
+Infrared: webm
+Long Exposure Infrared: webm
+Key: webm
+
+*JSON files include a timestamp on each frame.
+```
+
+Raw depth data will record, but the data is so heavy, it is not recommended to use the record function for this frame type. 
 

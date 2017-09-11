@@ -11,10 +11,10 @@ function setup() {
 	background(255);
 
   // Define and create an instance of kinectron
-  var yourKinectronIpAdress = ""; // FILL IN YOUR KINECTRON IP ADDRESS HERE
-  kinectron = new Kinectron(yourKinectronIpAdress);
+  var kinectronIpAddress = ""; // FILL IN YOUR KINECTRON IP ADDRESS HERE
+  kinectron = new Kinectron(kinectronIpAddress);
 
-  // CONNECT TO MIRCROSTUDIO
+  // Connect to the microstudio
   //kinectron = new Kinectron("kinectron.itp.tsoa.nyu.edu");
 
   // Connect with application over peer
@@ -27,10 +27,6 @@ function setup() {
 
 	// Set frames wanted from Kinectron 
 	frames = ["color", "depth", "body"];
-}
-
-function draw() {
-
 }
 
 function keyPressed() {
@@ -49,7 +45,6 @@ function rgbCallback(img) {
 	loadImage(img.src, function(loadedImage) {
     image(loadedImage, 0, 273.2, 660, 370);
   });
-
 }
 
 function depthCallback(img) {
@@ -58,12 +53,7 @@ function depthCallback(img) {
   });
 }
 
-// function rawDepthCallback(data) {
-// 	//console.log('raw', data);
-// }
-
 function bodyCallback(body) {
-
 	//find tracked bodies
 	for (var i = 0; i < body.length; i++) {
 		if (body[i].tracked === true) {
@@ -87,5 +77,6 @@ function bodyTracked(body) {
 
 function multiFrameCallback(data) {
 	console.log(data);
+	debugger;
 }
 

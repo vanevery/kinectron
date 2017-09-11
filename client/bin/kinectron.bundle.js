@@ -55,7 +55,8 @@
 	  this.body = null;
 	  this.jointName = null;
 
-	  this.rgbCallback = null;
+	  this.rgbCallback = null; // rgb depricated 3/16/17 use color instead
+	  this.colorCallback = null;
 	  this.depthCallback = null;
 	  this.rawDepthCallback = null;
 	  this.infraredCallback = null;
@@ -65,7 +66,7 @@
 	  this.trackedJointCallback = null;
 	  this.keyCallback = null;
 	  this.fhCallback = null;
-	  this.multiFrameCallBack = null;
+	  this.multiFrameCallback = null;
 
 	  // Joint Name Constants
 	  this.SPINEBASE = 0;
@@ -93,7 +94,24 @@
 	  this.THUMBLEFT = 22;
 	  this.HANDTIPRIGHT = 23;
 	  this.THUMBRIGHT = 24;
+
+	  var COLORWIDTH = 960;
+	  var COLORHEIGHT = 540;
+
+	  var DEPTHWIDTH = 512;
+	  var DEPTHHEIGHT = 424; 
 	  
+	  // Processing raw depth indicator
+	  var busy = false;
+
+	  // Running multiframe indicator
+	  var multiFrame = false;
+	  var currentFrames = [];
+
+	  // Hold initital frame request until peer connection ready
+	  var ready = false;
+	  var holdInitFeed = null;
+
 	  // Peer variables and defaults 
 	  var peer = null;
 	  var connection = null;
@@ -103,10 +121,18 @@
 	  // Hidden div variables
 	  var myDiv = null;
 
+	  // Record variables
+	  var doRecord = false;
+	  var recordStartTime = 0;
+	  var bodyChunks = [];
+	  var rawDepthChunks = [];
+	  var mediaRecorders = [];
+
 	  // Check for ip address in "quickstart" method  
 	  if (typeof arg1 !=="undefined" && typeof arg2 == "undefined") {
 	    var host = arg1;
 	    peerNet.host = host;
+
 	    // Check for new network provided by user
 	  } else if (typeof arg1 !== "undefined" && typeof arg2 !== "undefined") {
 	    var peerid = arg1;
@@ -131,38 +157,23 @@
 	  // Create hidden image to draw to
 	  myDiv = document.createElement("div");
 	  myDiv.style.visibility = "hidden";
+	  document.body.appendChild(myDiv);
+
 	  this.img = document.createElement("img");
 	  myDiv.appendChild(this.img);
 
-	  // // Create hidden canvas to draw and process rawDepth
-	  // var hiddenDiv;
-	  // var hiddenCanvas;
-	  // var hiddenContext;
-	  // var hiddenImage;
-	  
-	  //hiddenDiv = document.createElement("div");
-	  //hiddenDiv.style.visibility = "hidden";
-
+	  // Used for raw depth processing. 
+	  // TO DO refactor: create dynamically in process raw depth
 	  hiddenCanvas = document.createElement("canvas");
 	  hiddenCanvas.width = 512;
-	  hiddenCanvas.height = 212;
+	  hiddenCanvas.height = 424;
 	  hiddenContext = hiddenCanvas.getContext("2d");
+	  hiddenContext.fillStyle = 'green';
+	  hiddenContext.fillRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
 	  hiddenImage = document.createElement("img");
 
 	  myDiv.appendChild(hiddenCanvas);
 	  myDiv.appendChild(hiddenImage);
-	  // hiddenDiv.appendChild(hiddenCanvas);
-	  // hiddenDiv.appendChild(hiddenImage);
-
-	  // FOR TESTING RAW DEPTH ONLY
-	  // var testCanvas = document.createElement("canvas");
-	  // testCanvas.width = 512;
-	  // testCanvas.height = 424;
-	  // var testContext = testCanvas.getContext("2d");
-	  // var imageData = testContext.createImageData(testCanvas.width, testCanvas.height);
-	  // var imageDataSize = imageData.data.length;
-	  // var imageDataArray = imageData.data;
-
 
 	  // Make peer connection
 	  this.makeConnection = function() {
@@ -174,43 +185,62 @@
 	    // Route incoming traffic from Kinectron
 	    connection.on('data', function(dataReceived) {
 	      var data = dataReceived.data;
-	      var processedData;
 	      
 	      switch (dataReceived.event) {
 	        // Wait for ready from Kinectron to initialize
 	        case 'ready':
-	          var dataToSend = null;
-	          dataToSend = {feed: this.feed};
-	          this._sendToPeer('initfeed', dataToSend);         
+	          ready = true;
+
+	          if (holdInitFeed) {
+	            connection.send(holdInitFeed);
+	            holdInitFeed = null;
+	          }
+
 	        break;
 
 	        // If image data draw image
 	        case 'frame':
 	          this.img.src = data.imagedata;
 	          this._chooseCallback(data.name);
+	          
+	          if (doRecord) this._drawImageToCanvas(data.name);
 	        break;
 	        
-	        // If skeleton data, send skeleton
+	        // If receive all bodies, send all bodies
 	        case 'bodyFrame':
 	          this.bodiesCallback(data);
+
+	          if (doRecord) {
+	            data.record_startime = recordStartTime;
+	            data.record_timestamp = Date.now() - recordStartTime;
+	            bodyChunks.push(data);  
+	          }
 	        break;
 	 
-	        // If tracked skeleton data, send skeleton
+	        // If receive tracked skeleton data, send skeleton
 	        case 'trackedBodyFrame':
 	          this.body = data;
 
-	          // Check that joint exists
-	          // TO DO Why does joint come in as 0 when undefined
+	          // If joint specified send joint and call joint callback
 	          if (this.jointName && this.trackedJointCallback && this.body.joints[this.jointName] !== 0) {
 	            var joint = this.body.joints[this.jointName]; 
-
 	            joint.trackingId  = this.body.trackingId;
 	            this.trackedJointCallback(joint);
 	            
-	          }
-
-	          if (this.trackedBodiesCallback) {
+	            if (doRecord) {
+	              joint.record_startime = recordStartTime;
+	              joint.record_timestamp = Date.now() - recordStartTime;
+	              bodyChunks.push(joint);
+	            }
+	          // Or call tracked bodies callback on invidual tracked body
+	          } else if (this.trackedBodiesCallback) {
 	            this.trackedBodiesCallback(data);
+
+	            if (doRecord) {
+	              data.record_startime = recordStartTime;
+	              data.record_timestamp = Date.now() - recordStartTime;
+	              bodyChunks.push(data);
+	            }
 	          }
 	        break;
 
@@ -219,51 +249,112 @@
 	          this.fhCallback(data);
 	        break;
 
-	        // case 'rawDepth':
-	        //   processedData = this._processRawDepth(data);
-	        //   rawDepthCallback(processedData);
-	        // break;
+	        case 'rawDepth':
+	          var processedData = this._processRawDepth(data);
+	          this.rawDepthCallback(processedData);
+
+	          if (doRecord) {
+	            var recordedData = {};
+	            recordedData.data = processedData;
+	            recordedData.record_startime = recordStartTime;
+	            recordedData.record_timestamp = Date.now() - recordStartTime;
+	            rawDepthChunks.push(recordedData);
+	          }
+
+	        break;
 
 	        case 'multiFrame':
-	          if (this.multiFrameCallBack) {
-	            this.multiFrameCallBack(data);
+	          if (data.rawDepth) {
+	            var processedRawDepthData = this._processRawDepth(data.rawDepth);
+	            data.rawDepth = processedRawDepthData;
+	           }
+
+	          if (this.multiFrameCallback) {
+	            this.multiFrameCallback(data);
+
+	            if (doRecord) {
+	              if (data.color) {
+	                this.img.src = data.color;
+	                this._drawImageToCanvas('color');
+	              } 
+	              
+	              if (data.depth) {
+	                this.img.src = data.depth;
+	                this._drawImageToCanvas('depth');
+	              } 
+
+	              if (data.body) {
+	                data.body.record_startime = recordStartTime;
+	                data.body.record_timestamp = Date.now() - recordStartTime;
+	                bodyChunks.push(data.body);  
+	              } 
+
+	              if (data.rawDepth) {
+	                var recordedData2 = {};
+	                recordedData2.data = data.rawDepth;
+	                recordedData2.record_startime = recordStartTime;
+	                recordedData2.record_timestamp = Date.now() - recordStartTime;
+	                rawDepthChunks.push(recordedData2);
+	              }
+	            }
 	          } else {
 	            if (data.color) {
 	              this.img.src = data.color;
-	              this.rgbCallback(this.img);
+	              this.colorCallback(this.img);
+	              
+	              if (doRecord) this._drawImageToCanvas('color');
 	            }
 
 	            if (data.depth) {
 	              this.img.src = data.depth;
 	              this.depthCallback(this.img);
+	             
+	              if (doRecord) this._drawImageToCanvas('depth');
 	            }
 
 	            if (data.body) {
 	              this.bodiesCallback(data.body);
+	              
+	              if (doRecord) {
+	                data.body.record_startime = recordStartTime;
+	                data.body.record_timestamp = Date.now() - recordStartTime;
+	                bodyChunks.push(data.body);  
+	              }
 	            }
 
-	            // TO DO Rawdepth currently returns image, should return number
 	            if (data.rawDepth) {
-	              this.img.src = data.rawDepth;
-	              this.rawDepthCallback(this.img);
+	             this.rawDepthCallback(data.rawDepth);
+
+	              if (doRecord) {
+	                var recordedData3 = {};
+	                recordedData3.data = data.rawDepth;
+	                recordedData3.record_startime = recordStartTime;
+	                recordedData3.record_timestamp = Date.now() - recordStartTime;
+	                rawDepthChunks.push(recordedData3);
+	              }
 	            }
 
-	            // if (data.rawDepth) {
-	            //   processedData = this._processRawDepth(data.rawDepth);
-	            //   rawDepthCallback(processedData);
-	            // }
 	          }
 	        break;
 	      }
 	    }.bind(this));
 	  };
 
+	  // Changed RGB to Color to be consistent with SDK, RGB depricated 3/16/17
 	  this.startRGB = function(callback) {
+	    console.warn('startRGB no longer in use. Use startColor instead');
 	    if (callback) { 
-	      this.rgbCallback = callback;
+	      this.colorCallback = callback;
 	    }
 	    
-	    this._setFeed('rgb');
+	    this._setFeed('color');
+	  };
+
+	  this.startColor = function(callback) {
+	    if (callback) {
+	      this.colorCallback = callback;
+	    }
+	    this._setFeed('color');
 	  };
 
 	  this.startDepth = function(callback) {
@@ -312,9 +403,13 @@
 	      this.trackedBodiesCallback = callback;  
 	    }
 	    
+	    // Reset tracked joint variables
+	    this.jointName = null;
+	    this.trackedJointCallback = null;
+
 	    this._setFeed('skeleton');
 	  };
-
+	  
 	  this.startTrackedJoint = function(jointName, callback) {
 	    if (typeof jointName == 'undefined') {
 	       console.warn("Joint name does not exist.");
@@ -325,16 +420,19 @@
 	      this.jointName = jointName;
 	      this.trackedJointCallback = callback;
 	    }
-	    
+
 	    this._setFeed('skeleton');
 	  };
 
 	  this.startMultiFrame = function(frames, callback) {
 	    if (typeof callback !== "undefined") {
-	      this.multiFrameCallBack = callback;
+	      this.multiFrameCallback = callback;
 	    } else if (typeof callback == "undefined") {
-	      this.multiFrameCallBack = null;
+	      this.multiFrameCallback = null;
 	    }
+
+	    multiFrame = true;
+	    currentFrames = frames;
 
 	    this._sendToPeer('multi', frames);     
 	  };
@@ -352,13 +450,13 @@
 	  //   this._setFeed('scale');
 	  // };
 
-	  this.startFloorHeight = function(callback) {
-	    if (callback) {
-	      this.fhCallback = callback;  
-	    }
+	  // this.startFloorHeight = function(callback) {
+	  //   if (callback) {
+	  //     this.fhCallback = callback;  
+	  //   }
 	    
-	    this._setFeed('fh-joint');
-	  };
+	  //   this._setFeed('fh-joint');
+	  // };
 
 	  // Stop all feeds
 	  this.stopAll = function() {
@@ -366,8 +464,15 @@
 	  };
 
 	  // Set Callbacks 
+
+	  // Changed RGB to Color to be consistent with SDK, RGB depricated 3/16/17
 	  this.setRGBCallback = function(callback) {
-	    this.rgbCallback = callback;
+	    console.warn('setRGBCallback no longer in use. Use setColorCallback instead');
+	    this.colorCallback = callback;
+	  };
+
+	  this.setColorCallback = function(callback) {
+	    this.colorCallback = callback;
 	  };
 
 	  this.setDepthCallback = function(callback) {
@@ -401,6 +506,10 @@
 	  this.setFhCallback = function(callback) {
 	    this.fhCallback = callback;  
 	  };
+
+	  this.setMultiFrameCallback = function(callback) {
+	    this.multiFrameCallback = callback;
+	  };
 	  
 	  this.getJoints = function(callback) {
 	    var jointCallback = callback;
@@ -411,10 +520,6 @@
 	      jointCallback(joint);
 	    }
 	  };
-
-	  // this.drawFeed = function() {
-	  //   image(this.img, 0, 0);
-	  // };
 	  
 	  this.getHands = function(callback) {
 	    var handCallback = callback;
@@ -432,17 +537,40 @@
 	    handCallback(hands);
 	  };
 
+	  this.startRecord = function() {
+	    console.log('Starting record');
+	    this._record();
+	  };
+
+	  this.stopRecord = function() {
+	    console.log('Ending record');
+	    this._record();
+	  };
+
+	  this.startServerRecord = function() {
+	    console.log('Starting recording on your server');
+	    this._sendToPeer('record', 'start');
+	  };
+
+	  this.stopServerRecord = function() {
+	    console.log('Ending recording on your server');
+	    this._sendToPeer('record', 'stop');
+	  };
+
 
 	  // Private functions //
 
 	  // Change feed on user input
 	  this._setFeed = function(feed) {
 	    var dataToSend = null;
-	   
 	    this.feed = feed;
 	    dataToSend = {
 	      feed: this.feed
 	    };
+
+	    // Reset multiframe
+	    multiFrame = false;
+
 	    this._sendToPeer('feed', dataToSend);
 	  };
 
@@ -452,6 +580,12 @@
 	      event: evt, 
 	      data: data
 	    };
+
+	    // If connection not ready, wait for connection
+	    if (!ready) { 
+	      holdInitFeed = dataToSend;
+	      return;
+	    }
 	    connection.send(dataToSend);
 	  };
 
@@ -459,7 +593,7 @@
 	  this._chooseCallback = function(frame) {
 	    switch (frame) {
 	      case 'color':
-	        this.rgbCallback(this.img);
+	        this.colorCallback(this.img);
 	      break;
 
 	      case 'depth':
@@ -477,10 +611,6 @@
 	      case 'key':
 	        this.keyCallback(this.img);
 	      break;
-
-	      case 'rawDepth':
-	        this.rawDepthCallback(this.img);
-	      break;
 	    }
 	  };
 
@@ -489,76 +619,204 @@
 	    switch (handState) {
 	      case 0:
 	        return 'unknown';
-	      break;
 
 	      case 1:
 	        return 'notTracked';
-	      break;
 
 	      case 2:
 	        return 'open';
-	      break;
 
 	      case 3:
 	        return 'closed';
-	      break;
 
 	      case 4:
 	        return 'lasso';
-	      break;
 	    }
 	  };
 
+	  this._processRawDepth = function(data) {
+	    if (busy) return;
+	    busy = true;
+	    var imageData;
+	    var depthBuffer;
+	    var processedData = [];
 
-	  // TO DO -- Confirm output from rawDepth is correct
-	  // this._processRawDepth = function(data) {
-	  //   console.log('k');
-	  //   var imageData;
-	  //   var depthBuffer;
-	  //   var processedData = [];
+	    var newImg = new Image();
+	    newImg.src = data;
 
-	  //   hiddenImage.src = data;
-	  //   hiddenContext.clearRect(0, 0, hiddenContext.canvas.width, hiddenContext.canvas.height);
-	  //   hiddenContext.drawImage(hiddenImage, 0, 0);
-	  //   imageData = hiddenContext.getImageData(0, 0, hiddenContext.canvas.width, hiddenContext.canvas.height);
-	  //   depthBuffer = imageData.data;
+	    newImg.onload = function () {
+	      hiddenContext.clearRect(0, 0, hiddenContext.canvas.width, hiddenContext.canvas.height);
+	      hiddenContext.drawImage(newImg, 0, 0);
+	    }.bind(this);
 
-	  //   for(var i = 0; i < depthBuffer.length; i+=2) {
-	  //     var depth = (depthBuffer[i+1] << 8) + depthBuffer[i]; //get uint16 data from buffer
-	  //     processedData.push(depth);
-	  //   }
-
-	  //   return processedData;
-	  // };
-
-	  // FOR TESTING -- use this to show raw depth image on canvas
-	  // this._rawDepthTest = function(data) {
-	  //   var imageDataTemp;
-	  //   var depthBuffer;
-	  //   var newPixelData;
-	  //   var j = 0;
-
-	  //   hiddenImage.src = data;
-	  //   hiddenContext.clearRect(0, 0, hiddenContext.canvas.width, hiddenContext.canvas.height);
-	  //   hiddenContext.drawImage(hiddenImage, 0, 0);
-	  //   imageDataTemp = hiddenContext.getImageData(0, 0, hiddenContext.canvas.width, hiddenContext.canvas.height);
-	  //   newPixelData = imageDataTemp.data;
+	    imageData = hiddenContext.getImageData(0, 0, hiddenContext.canvas.width, hiddenContext.canvas.height);
 	    
-	  //   for (var k = 0; k < imageDataSize; k+=4) {
-	  //     imageDataArray[k] = newPixelData[j];
-	  //     imageDataArray[k+1] = newPixelData[j+1];
-	  //     imageDataArray[k+2] = 0;
-	  //     imageDataArray[k+3] = 0xff; // set alpha cahannel at full opacity
-	  //     j+=2;
-	  //   }
+	    for(var i = 0; i < imageData.data.length; i+=4) {
+	      var depth = (imageData.data[i+1] << 8) + imageData.data[i]; //get uint16 data from buffer
+	      processedData.push(depth);
+	    }
 
-	  //   testContext.putImageData(imageData, 0, 0);
-	  //   var testCanvasData = testCanvas.toDataURL("image/png", 0.5);
-	  //   this.img.elt.src = testCanvasData;
-	  //   //this.callback(this.img);
-	  // };
+	    busy = false;
+	    return processedData;
+	  };
+
+	    // Toggle Recording
+	  this._record = function() {
+	    if (!doRecord) {
+
+	      // If no feed started, send warning and return
+	      if ((multiFrame === false && this.feed === null) || this.feed === 'stop-all') {
+	        console.warn("Record does not work until a feed is started");
+	        return;
+	      }
+
+	      var framesToRecord = [];
+
+	      // How many recorders needed
+	      if (multiFrame) {
+	        for (var i = 0; i < currentFrames.length; i++) {
+	          framesToRecord.push(currentFrames[i]);
+	        }
+	      } else {
+	        framesToRecord.push(this.feed);
+	      }
+
+	      // Create one media recorder for each feed
+	      for (var j = 0; j < framesToRecord.length; j++) {
+	        mediaRecorders.push(this._createMediaRecorder(framesToRecord[j]));
+	      }
+	      
+	      recordStartTime = Date.now();
+	      doRecord = true;
+
+	    } else {
+	      doRecord = false;
+	      
+	      // Stop all mediarecorders and remove them from array
+	      for (var k = mediaRecorders.length - 1; k >= 0; k--) {
+	        mediaRecorders[k].stop();  
+	        mediaRecorders.splice(k, 1);
+	      } 
+
+	    }
+	  };
+
+	  this._drawImageToCanvas = function(frame) {
+	    var tempContext;
+
+	    // Look through media recorders for the correct canvas to draw to
+	    for (var k = 0; k < mediaRecorders.length; k++) {
+	      var id = mediaRecorders[k].canvas.id;
+	      if (id.indexOf(frame) >= 0) {
+	       tempContext = mediaRecorders[k].canvas.getContext("2d"); 
+	      }
+	    }
+	    
+	    // Draw to the appropriate canvas
+	    tempContext.drawImage(this.img, 0, 0);
+	  };
+
+	  this._createMediaRecorder = function(frame) {
+	    var newMediaRecorder;
+
+	    // Create hidden canvas to draw to
+	    newHiddenCanvas = document.createElement("canvas");
+	    newHiddenCanvas.setAttribute('id', frame + Date.now());
+
+	    if (frame == 'color' || frame == 'key') {
+	      newHiddenCanvas.width = COLORWIDTH;
+	      newHiddenCanvas.height = COLORHEIGHT;
+	    } else {
+	      newHiddenCanvas.width = DEPTHWIDTH;
+	      newHiddenCanvas.height = DEPTHHEIGHT;
+	    }
+
+	    newHiddenContext = hiddenCanvas.getContext("2d");
+	    newHiddenContext.fillRect(0, 0, newHiddenCanvas.width, newHiddenCanvas.height);
+	    
+	    // Add canvas to hidden div
+	    myDiv.appendChild(newHiddenCanvas);
+
+	    // Create media recorder, add canvas to recorder
+	    newMediaRecorder = new MediaRecorder(newHiddenCanvas.captureStream());
+	    newMediaRecorder.canvas = newHiddenCanvas;
+	    
+	    var mediaChunks = [];
+
+	    newMediaRecorder.onstop = function (e) {
+
+	      // If skeleton data is being tracked, write out the body frames to JSON
+	      if (frame == 'body' || frame == 'skeleton') {
+	        var blobJson = new Blob([JSON.stringify(bodyChunks)], {type : 'application/json'});
+	        var jsonUrl = URL.createObjectURL(blobJson);
+	        var a2 = document.createElement('a');
+	        document.body.appendChild(a2);
+	        a2.style = 'display: none';
+	        a2.href = jsonUrl;
+	        a2.download = frame + Date.now() + '.json';
+	        a2.click();
+	        window.URL.revokeObjectURL(jsonUrl);
+
+	        // Reset body chunks
+	        bodyChunks.length = 0;   
+	      
+	      // If raw depth data tracked, write out to JSON       
+	      } else if (frame == 'raw-depth') {
+	        var blobJsonRd = new Blob([JSON.stringify(rawDepthChunks)], {type : 'application/json'});
+	        var jsonRdUrl = URL.createObjectURL(blobJsonRd);
+	        var a3 = document.createElement('a');
+	        document.body.appendChild(a3);
+	        a3.style = 'display: none';
+	        a3.href = jsonRdUrl;
+	        a3.download = frame + Date.now() + '.json';
+	        a3.click();
+	        window.URL.revokeObjectURL(jsonRdUrl);
+
+	        // Reset body chunks
+	        rawDepthChunks.length = 0;  
+
+	      // If video display the video on the page
+	      } else {
+	        
+	        // The video as a blob
+	        var blobVideo = new Blob(mediaChunks, { 'type' : 'video/webm' });
+
+	        // Draw video to screen
+	        // var videoElement = document.createElement('video');
+	        // videoElement.setAttribute("id", Date.now());
+	        // videoElement.controls = true;
+	        // document.body.appendChild(videoElement);
+	        // videoElement.src = window.URL.createObjectURL(blobVideo);
+
+	        // Download the video 
+	        var url = URL.createObjectURL(blobVideo);
+	        var a = document.createElement('a');
+	        document.body.appendChild(a);
+	        a.style = 'display: none';
+	        a.href = url;
+	        a.download = frame + Date.now() + '.webm';
+	        a.click();
+	        window.URL.revokeObjectURL(url);
+
+	        // Reset media chunks
+	        mediaChunks.length = 0;    
+	      }
 
 
+	    }.bind(this);
+
+	    // When video data is available
+	    newMediaRecorder.ondataavailable = function(e) {
+	      mediaChunks.push(e.data);
+	    };
+
+	    // Start recording
+	    newMediaRecorder.start();
+	    return newMediaRecorder;
+	  };
+
+
+	  
 	};
 
 	})(window);
@@ -2991,6 +3249,7 @@
 
 	    chunkInfo.data[data.n] = data.data;
 	    chunkInfo.count += 1;
+	    this._chunkedData[id] = chunkInfo;
 
 	    if (chunkInfo.total === chunkInfo.count) {
 	      // Clean up before making the recursive call to `_handleDataMessage`.
@@ -3001,7 +3260,7 @@
 	      this._handleDataMessage({data: data});
 	    }
 
-	    this._chunkedData[id] = chunkInfo;
+	    
 	    return;
 	  }
 
